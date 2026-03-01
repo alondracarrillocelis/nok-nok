@@ -38,7 +38,7 @@ export default function Login() {
         });
 
         if (error) {
-          setError('Credenciales inválidassssss');
+          setError('Credenciales inválidas');
         } else {
           navigate('/dashboard');
         }

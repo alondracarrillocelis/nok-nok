@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Users, Settings, LogOut, Search } from 'lucide-react';
+import { Home, Users, BookOpen, Settings, LogOut, Book } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface LayoutProps {
@@ -42,6 +42,7 @@ export default function Layout({ children }: LayoutProps) {
                       ? 'bg-green-500 text-white'
                       : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                   }`}
+                  title="Dashboard"
                 >
                   <Home size={20} />
                 </button>
@@ -52,15 +53,39 @@ export default function Layout({ children }: LayoutProps) {
                       ? 'bg-green-500 text-white'
                       : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                   }`}
+                  title="Estudiantes"
+                >
+                  <BookOpen size={20} />
+                </button>
+                <button
+                  onClick={() => navigate('/subjects')}
+                  className={`p-3 rounded-full transition-colors ${
+                    location.pathname === '/subjects'
+                      ? 'bg-green-500 text-white'
+                      : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                  }`}
+                  title="Materias"
+                >
+                  <Book size={20} />
+                </button>
+                <button
+                  onClick={() => navigate('/users')}
+                  className={`p-3 rounded-full transition-colors ${
+                    location.pathname === '/users'
+                      ? 'bg-green-500 text-white'
+                      : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                  }`}
+                  title="Usuarios"
                 >
                   <Users size={20} />
                 </button>
-                <button className="p-3 rounded-full bg-gray-200 text-gray-600 hover:bg-gray-300 transition-colors">
+                <button className="p-3 rounded-full bg-gray-200 text-gray-600 hover:bg-gray-300 transition-colors" title="Configuración">
                   <Settings size={20} />
                 </button>
                 <button
                   onClick={handleLogout}
                   className="p-3 rounded-full bg-gray-200 text-gray-600 hover:bg-gray-300 transition-colors"
+                  title="Cerrar Sesión"
                 >
                   <LogOut size={20} />
                 </button>
