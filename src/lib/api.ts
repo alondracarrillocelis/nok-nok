@@ -1,9 +1,8 @@
 // API Service - Centralizado para todas las llamadas a la API REST
-// Base URL: https://nok-nok-api.onrender.com
 
 import { ENDPOINTS, HTTP_METHODS, ERROR_MESSAGES } from '../constants/endpoints';
 
-const API_BASE_URL = 'https://nok-nok-api.onrender.com/api';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 // Tipos
 export interface AuthResponse {
@@ -117,11 +116,22 @@ export const auth = {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Error en el login');
+      const errorText = await response.text();
+      let errorObj;
+      try {
+        errorObj = errorText ? JSON.parse(errorText) : null;
+      } catch {
+        errorObj = null;
+      }
+      throw new Error((errorObj && errorObj.message) || 'Error en el login');
     }
 
-    const data: AuthResponse = await response.json();
+    const text = await response.text();
+    if (!text) {
+      throw new Error('La respuesta del login no contiene JSON válido');
+    }
+
+    const data: AuthResponse = JSON.parse(text);
     localStorage.setItem('auth_token', data.access_token);
     if (data.refresh_token) {
       localStorage.setItem('refresh_token', data.refresh_token);
@@ -137,12 +147,32 @@ export const auth = {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Error en el registro');
+      const errorText = await response.text();
+      let errorObj;
+      try {
+        errorObj = errorText ? JSON.parse(errorText) : null;
+      } catch {
+        errorObj = null;
+      }
+      throw new Error((errorObj && errorObj.message) || 'Error en el registro');
     }
 
-    const data: AuthResponse = await response.json();
+    const text = await response.text();
+    if (!text) {
+      // Si el registro no devuelve cuerpo JSON, intentar login automáticamente
+      return auth.login(email, password);
+    }
+
+    const data: AuthResponse = JSON.parse(text);
+    if (!data.access_token) {
+      // Si no viene token, intentar login
+      return auth.login(email, password);
+    }
+
     localStorage.setItem('auth_token', data.access_token);
+    if (data.refresh_token) {
+      localStorage.setItem('refresh_token', data.refresh_token);
+    }
     return data;
   },
 
