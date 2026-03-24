@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, AlertCircle } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { students, subjects, users, ailments, studentAilments, studentSubjects, enrollments } from '../lib/api';
 import { showToast } from './Toast';
 import ConfirmationModal from './ConfirmationModal';
 
@@ -88,135 +88,74 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
     try {
       setIsLoading(true);
       // Fetch student
-      const { data: student } = await supabase
-        .from('students')
-        .select('*')
-        .eq('id', studentId)
-        .single();
+      const student = await students.getById(studentId);
 
       if (student) {
+        // Parse name back to components (this is a simplification)
+        const nameParts = student.name.split(' ');
         setFormData({
-          firstName: student.first_name || '',
-          paternalSurname: student.paternal_surname || '',
-          maternalSurname: student.maternal_surname || '',
-          birthDate: student.birth_date || '',
-          enrollmentNumber: student.enrollment_number || '',
-          enrollmentDate: student.enrollment_date || '',
-          currentLevel: student.current_level || 'Principiante',
-          currentGrade: student.current_grade || 'Principiante',
-          program: student.program || 'Programa I',
-          shift: student.shift || 'Matutino',
-          representative: student.representative || 'Representante I',
-          tutorName: '',
-          tutorPhone: '',
+          firstName: nameParts[0] || '',
+          paternalSurname: nameParts[1] || '',
+          maternalSurname: nameParts.slice(2).join(' ') || '',
+          birthDate: '', // API doesn't provide birth date
+          enrollmentNumber: '', // API doesn't provide enrollment number
+          enrollmentDate: '',
+          currentLevel: 'Principiante',
+          currentGrade: 'Principiante',
+          program: 'Programa I',
+          shift: 'Matutino',
+          representative: 'Representante I',
+          tutorName: student.emergency_contact || '',
+          tutorPhone: student.emergency_phone || '',
           tutorEmail: '',
           tutorId: '',
         });
       }
 
-      // Fetch tutor
-      const { data: tutors } = await supabase
-        .from('tutors')
-        .select('*')
-        .eq('student_id', studentId);
-
-      if (tutors && tutors.length > 0) {
-        const tutor = tutors[0];
-        setFormData(prev => ({
-          ...prev,
-          tutorName: tutor.name || '',
-          tutorPhone: tutor.phone || '',
-          tutorEmail: tutor.email || '',
-          tutorId: tutor.id || '',
-        }));
-      }
-
       // Fetch subjects
-      const { data: allSubjects } = await supabase
-        .from('subjects')
-        .select('id, name, code')
-        .eq('status', 'activo')
-        .order('name');
-
-      if (allSubjects) {
-        setSubjects(allSubjects);
-      }
+      const subjectsResponse = await subjects.list();
+      setSubjects(subjectsResponse.data.filter(subject => subject.status === 'activo'));
 
       // Fetch student subjects
-      const { data: studentSubjects } = await supabase
-        .from('student_subjects')
-        .select('subject_id')
-        .eq('student_id', studentId);
-
-      if (studentSubjects) {
-        setSelectedSubjects(studentSubjects.map(s => s.subject_id));
-      }
+      const studentSubjectsResponse = await studentSubjects.list(studentId);
+      setSelectedSubjects(studentSubjectsResponse.data.map(s => s.subject_id));
 
       // Fetch all ailments
-      const { data: allAilments } = await supabase
-        .from('ailments')
-        .select('id, name, description, medication, severity')
-        .order('name');
-
-      if (allAilments) {
-        setAilments(allAilments);
-      }
+      const ailmentsResponse = await ailments.list();
+      setAilments(ailmentsResponse.data);
 
       // Fetch student ailments
-      const { data: studentAilments } = await supabase
-        .from('student_ailments')
-        .select('ailment_id, diagnosis_date, notes')
-        .eq('student_id', studentId)
-        .eq('status', 'active');
-
-      if (studentAilments) {
-        setSelectedAilments(studentAilments.map(a => a.ailment_id));
-        const details: Record<string, { diagnosisDate: string; notes: string }> = {};
-        studentAilments.forEach(a => {
-          details[a.ailment_id] = {
-            diagnosisDate: a.diagnosis_date || '',
-            notes: a.notes || '',
-          };
-        });
-        setAilmentDetails(details);
-      }
+      const studentAilmentsResponse = await studentAilments.list(studentId);
+      setSelectedAilments(studentAilmentsResponse.data.map(a => a.ailment_id));
+      const details: Record<string, { diagnosisDate: string; notes: string }> = {};
+      studentAilmentsResponse.data.forEach(a => {
+        details[a.ailment_id] = {
+          diagnosisDate: '', // API doesn't provide diagnosis date
+          notes: a.notes || '',
+        };
+      });
+      setAilmentDetails(details);
 
       // Fetch enrollment/inscription
-      const { data: enrollment } = await supabase
-        .from('enrollments')
-        .select('*')
-        .eq('student_id', studentId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
-
-      if (enrollment) {
+      const enrollmentsResponse = await enrollments.list(studentId);
+      if (enrollmentsResponse.data && enrollmentsResponse.data.length > 0) {
+        const enrollment = enrollmentsResponse.data[0];
         setFormData(prev => ({
           ...prev,
-          folio: enrollment.folio || '',
-          inscriptionDate: enrollment.enrollment_date || '',
-          inscriptionType: enrollment.enrollment_type || 'semanal',
-          inscriptionProgram: enrollment.program || 'Programa I',
-          representativeId: enrollment.representative_id || '',
-          enrollmentId: enrollment.id || '',
+          inscriptionDate: enrollment.enrollment_date,
+          inscriptionProgram: enrollment.program_id === 'program-1' ? 'Programa I' : 'Programa II',
+          enrollmentId: enrollment.id,
         }));
       }
 
       // Fetch all users/representatives
-      const { data: allUsers } = await supabase
-        .from('users')
-        .select('id, first_name, paternal_surname, maternal_surname, email, role')
-        .eq('status', 'activo')
-        .order('first_name');
-
-      if (allUsers) {
-        setUsers(allUsers.map((u: { id: string; first_name: string; paternal_surname: string; maternal_surname?: string; email: string; role: string }) => ({
-          id: u.id,
-          name: [u.first_name, u.paternal_surname, u.maternal_surname].filter(Boolean).join(' '),
-          email: u.email,
-          role: u.role,
-        })));
-      }
+      const usersResponse = await users.list();
+      setUsers(usersResponse.data.map((u: any) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+      })));
     } catch (error) {
       console.error('Error fetching student data:', error);
       showToast('Error al cargar datos del alumno', 'error');
@@ -307,20 +246,16 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
     }
     setCreatingAilment(true);
     try {
-      const { data, error } = await supabase
-        .from('ailments')
-        .insert([{
-          name: newAilmentForm.name,
-          description: newAilmentForm.description,
-          medication: newAilmentForm.medication,
-          severity: newAilmentForm.severity,
-        }])
-        .select()
-        .single();
-      if (error) throw error;
-      if (data) {
-        setAilments(prev => [...prev, data]);
-        setSelectedAilments(prev => [...prev, data.id]);
+      const newAilment = await ailments.create({
+        name: newAilmentForm.name,
+        description: newAilmentForm.description,
+        medication: newAilmentForm.medication,
+        severity: newAilmentForm.severity,
+      });
+
+      if (newAilment) {
+        setAilments(prev => [...prev, newAilment]);
+        setSelectedAilments(prev => [...prev, newAilment.id]);
         setNewAilmentForm({ name: '', description: '', medication: '', severity: 'moderado' });
         showToast('Padecimiento creado y asignado al alumno', 'success');
       }
@@ -347,109 +282,69 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
     setIsSaving(true);
     try {
       // Update student
-      await supabase
-        .from('students')
-        .update({
-          first_name: formData.firstName,
-          paternal_surname: formData.paternalSurname,
-          maternal_surname: formData.maternalSurname,
-          birth_date: formData.birthDate || null,
-          enrollment_number: formData.enrollmentNumber,
-          enrollment_date: formData.enrollmentDate,
-          current_level: formData.currentLevel,
-          current_grade: formData.currentGrade,
-          program: formData.program,
-          shift: formData.shift,
-          representative: formData.representative,
-        })
-        .eq('id', studentId);
+      const studentData = {
+        name: `${formData.firstName} ${formData.paternalSurname} ${formData.maternalSurname || ''}`.trim(),
+        email: '', // No email in form
+        phone: '', // No phone in form
+        gender: 'O' as const, // Default gender
+        emergency_contact: formData.tutorName || null,
+        emergency_phone: formData.tutorPhone || null,
+      };
 
-      // Update or create tutor
-      if (formData.tutorName) {
-        if (formData.tutorId) {
-          // Update existing tutor
-          await supabase
-            .from('tutors')
-            .update({
-              name: formData.tutorName,
-              phone: formData.tutorPhone,
-              email: formData.tutorEmail,
-            })
-            .eq('id', formData.tutorId);
-        } else {
-          // Create new tutor
-          await supabase.from('tutors').insert([
-            {
-              student_id: studentId,
-              name: formData.tutorName,
-              phone: formData.tutorPhone,
-              email: formData.tutorEmail,
-            },
-          ]);
-        }
-      } else if (formData.tutorId) {
-        // Delete tutor if name is empty
-        await supabase.from('tutors').delete().eq('id', formData.tutorId);
+      await students.update(studentId, studentData);
+
+      // Update subjects - delete existing and create new
+      // First get current student subjects to delete them
+      const currentStudentSubjects = await studentSubjects.list(studentId);
+      for (const ss of currentStudentSubjects.data) {
+        await studentSubjects.delete(ss.id);
       }
 
-      // Update subjects
-      await supabase
-        .from('student_subjects')
-        .delete()
-        .eq('student_id', studentId);
-
+      // Create new student subjects
       if (selectedSubjects.length > 0) {
-        const studentSubjects = selectedSubjects.map(subjectId => ({
-          student_id: studentId,
-          subject_id: subjectId,
-          status: 'active',
-        }));
-
-        await supabase.from('student_subjects').insert(studentSubjects);
+        for (const subjectId of selectedSubjects) {
+          await studentSubjects.create({
+            student_id: studentId,
+            subject_id: subjectId,
+          });
+        }
       }
 
-      // Update ailments
-      await supabase
-        .from('student_ailments')
-        .update({ status: 'inactive' })
-        .eq('student_id', studentId)
-        .eq('status', 'active');
+      // Update ailments - delete existing and create new
+      // First get current student ailments to delete them
+      const currentStudentAilments = await studentAilments.list(studentId);
+      for (const sa of currentStudentAilments.data) {
+        await studentAilments.delete(sa.id);
+      }
 
+      // Create new student ailments
       if (selectedAilments.length > 0) {
-        const studentAilments = selectedAilments.map(ailmentId => ({
-          student_id: studentId,
-          ailment_id: ailmentId,
-          status: 'active',
-          diagnosis_date: ailmentDetails[ailmentId]?.diagnosisDate || null,
-          notes: ailmentDetails[ailmentId]?.notes || null,
-        }));
-
-        await supabase.from('student_ailments').upsert(studentAilments, {
-          onConflict: 'student_id,ailment_id',
-        });
+        for (const ailmentId of selectedAilments) {
+          await studentAilments.create({
+            student_id: studentId,
+            ailment_id: ailmentId,
+            notes: ailmentDetails[ailmentId]?.notes || null,
+          });
+        }
       }
 
       // Update or create enrollment/inscription
       if (formData.enrollmentId) {
         // Update existing enrollment
-        await supabase.from('enrollments').update({
-          folio: formData.folio,
+        await enrollments.update(formData.enrollmentId, {
+          student_id: studentId,
+          program_id: formData.inscriptionProgram === 'Programa I' ? 'program-1' : 'program-2',
+          status: 'active',
           enrollment_date: formData.inscriptionDate,
-          enrollment_type: formData.inscriptionType,
-          program: formData.inscriptionProgram,
-          representative_id: formData.representativeId || null,
-        }).eq('id', formData.enrollmentId);
+        });
       } else {
         // Create new enrollment
-        await supabase.from('enrollments').insert([{
+        await enrollments.create({
           student_id: studentId,
-          folio: formData.folio || `FOLIO-${studentId.slice(0, 8).toUpperCase()}`,
+          program_id: formData.inscriptionProgram === 'Programa I' ? 'program-1' : 'program-2',
+          status: 'active',
           enrollment_date: formData.inscriptionDate,
-          enrollment_type: formData.inscriptionType,
-          program: formData.inscriptionProgram,
-          representative_id: formData.representativeId || null,
-          status: 'activo',
-        }]);
+        });
       }
 
       showToast('Alumno/a actualizado exitosamente', 'success');

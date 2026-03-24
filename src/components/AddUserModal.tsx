@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { auth, users, API_BASE_URL } from '../lib/api';
+import { ENDPOINTS } from '../constants/endpoints';
 import { showToast } from './Toast';
 
 interface AddUserModalProps {
@@ -66,50 +67,44 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
 
     setIsLoading(true);
     try {
-      let authUserId: string | null = null;
+      let authUser: any = null;
 
-      // Si el usuario dejó contraseña, intentamos crear la cuenta de Auth.
+      // Si el usuario dejó contraseña, intentamos crear la cuenta de Auth usando la API
       if (formData.password) {
         try {
-          const { data: authData, error: authError } = await supabase.auth.signUp({
-            email: formData.email,
-            password: formData.password,
-            options: {
-              data: {
-                first_name: formData.firstName,
-                paternal_surname: formData.paternalSurname,
-                maternal_surname: formData.maternalSurname,
-                role: role,
-              },
-            },
-          });
-          if (authError) {
-            // sólo avisamos, no abortamos la creación de registro
-            console.warn('Error al crear usuario Auth:', authError.message);
-          } else if (authData.user) {
-            authUserId = authData.user.id;
-          }
-        } catch (e) {
-          console.warn('Excepción al crear usuario Auth:', e);
+          authUser = await auth.register(formData.email, formData.password, formData.firstName);
+        } catch (authError) {
+          // Solo avisamos, no abortamos la creación del registro
+          console.warn('Error al crear usuario Auth:', authError);
         }
       }
 
-      // Insertar en tabla de usuarios (user_id puede ser null)
-      const { error: insertError } = await supabase.from('users').insert([
-        {
-          user_id: authUserId,
-          first_name: formData.firstName,
-          paternal_surname: formData.paternalSurname,
-          maternal_surname: formData.maternalSurname,
-          email: formData.email,
-          phone: formData.phone,
-          role: role,
-          status: 'activo',
-          created_at: new Date().toISOString(),
-        },
-      ]);
+      // Crear el registro de usuario usando llamada directa a la API
+      const token = localStorage.getItem('auth_token');
+      const userData = {
+        user_id: authUser?.user?.id || null,
+        first_name: formData.firstName,
+        paternal_surname: formData.paternalSurname,
+        maternal_surname: formData.maternalSurname,
+        email: formData.email,
+        phone: formData.phone,
+        role: role,
+        status: 'activo',
+      };
 
-      if (insertError) throw insertError;
+      const response = await fetch(`${API_BASE_URL}${ENDPOINTS.USERS.CREATE}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(userData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Error al crear el usuario');
+      }
 
       showToast(`${role === 'admin' ? 'Administrador' : 'Tutor'} agregado exitosamente`, 'success');
       onSuccess();

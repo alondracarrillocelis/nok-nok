@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X, FileText, AlertCircle } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { students, subjects, users, ailments, studentAilments, studentSubjects, enrollments, documents } from '../lib/api';
 import { showToast } from './Toast';
 import DragDropUpload from './DragDropUpload';
 import ConfirmationModal from './ConfirmationModal';
@@ -84,15 +84,9 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
 
   const fetchSubjects = async () => {
     try {
-      const { data } = await supabase
-        .from('subjects')
-        .select('id, name, code')
-        .eq('status', 'activo')
-        .order('name');
-
-      if (data) {
-        setSubjects(data);
-      }
+      const data = await subjects.list();
+      // Filter only active subjects
+      setSubjects(data.filter(subject => subject.status === 'activo'));
     } catch (error) {
       console.error('Error fetching subjects:', error);
     }
@@ -100,20 +94,15 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
 
   const fetchUsers = async () => {
     try {
-      const { data } = await supabase
-        .from('users')
-        .select('id, first_name, paternal_surname, maternal_surname, email, role')
-        .eq('status', 'activo')
-        .order('first_name');
-
-      if (data) {
-        setUsers(data.map((u: { id: string; first_name: string; paternal_surname: string; maternal_surname?: string; email: string; role: string }) => ({
-          id: u.id,
-          name: [u.first_name, u.paternal_surname, u.maternal_surname].filter(Boolean).join(' '),
-          email: u.email,
-          role: u.role,
-        })));
-      }
+      const response = await users.list();
+      const data = response.data;
+      // Transform data to match expected format
+      setUsers(data.map((u: any) => ({
+        id: u.id,
+        name: [u.first_name, u.paternal_surname, u.maternal_surname].filter(Boolean).join(' '),
+        email: u.email,
+        role: u.role,
+      })));
     } catch (error) {
       console.error('Error fetching users:', error);
     }
@@ -127,24 +116,18 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
 
     setCreatingAilment(true);
     try {
-      const { data, error } = await supabase
-        .from('ailments')
-        .insert([{
-          name: newAilmentForm.name,
-          description: newAilmentForm.description,
-          medication: newAilmentForm.medication,
-          severity: newAilmentForm.severity,
-        }])
-        .select()
-        .single();
+      const newAilment = await ailments.create({
+        name: newAilmentForm.name,
+        description: newAilmentForm.description,
+        medication: newAilmentForm.medication,
+        severity: newAilmentForm.severity,
+      });
 
-      if (error) throw error;
-
-      if (data) {
+      if (newAilment) {
         // Add new ailment to the list
-        setAilments(prev => [...prev, data]);
+        setAilments(prev => [...prev, newAilment]);
         // Auto-select the new ailment
-        setSelectedAilments(prev => [...prev, data.id]);
+        setSelectedAilments(prev => [...prev, newAilment.id]);
         // Reset form
         setNewAilmentForm({
           name: '',
@@ -252,67 +235,28 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
   const performSubmit = async () => {
     setIsLoading(true);
     try {
-      const { data: student, error: studentError } = await supabase
-        .from('students')
-        .insert([
-          {
-            first_name: formData.firstName,
-            paternal_surname: formData.paternalSurname,
-            maternal_surname: formData.maternalSurname,
-            birth_date: formData.birthDate || null,
-            enrollment_number: formData.enrollmentNumber,
-            enrollment_date: formData.enrollmentDate || new Date().toISOString().split('T')[0],
-            current_level: formData.currentLevel,
-            current_grade: formData.currentGrade,
-            program: formData.program,
-            shift: formData.shift,
-            representative: formData.representative,
-            status: 'activo',
-          },
-        ])
-        .select()
-        .single();
+      // Crear estudiante
+      const studentData = {
+        name: `${formData.firstName} ${formData.paternalSurname} ${formData.maternalSurname || ''}`.trim(),
+        email: '', // No se proporciona email en el formulario
+        phone: '', // No se proporciona teléfono en el formulario
+        gender: 'O' as const, // Default gender
+        emergency_contact: formData.tutorName || null,
+        emergency_phone: formData.tutorPhone || null,
+      };
 
-      if (studentError) throw studentError;
-
-      // Agregar tutor si se proporcionó
-      if (student && formData.tutorName) {
-        await supabase.from('tutors').insert([
-          {
-            student_id: student.id,
-            name: formData.tutorName,
-            phone: formData.tutorPhone,
-            email: formData.tutorEmail,
-          },
-        ]);
-      }
+      const student = await students.create(studentData);
 
       // Cargar documentos si existen
       if (student && documentFiles.length > 0) {
         for (const file of documentFiles) {
           try {
-            const filePath = `students/${student.id}/${file.name}`;
-            const { error: uploadError } = await supabase
-              .storage
-              .from('documents')
-              .upload(filePath, file);
+            const formDataUpload = new FormData();
+            formDataUpload.append('file', file);
+            formDataUpload.append('student_id', student.id);
+            formDataUpload.append('subject_id', ''); // No subject for general documents
 
-            if (uploadError) {
-              console.error('Error uploading document:', uploadError);
-              continue;
-            }
-
-            const { data: publicUrlData } = supabase
-              .storage
-              .from('documents')
-              .getPublicUrl(filePath);
-
-            await supabase.from('documents').insert([{
-              student_id: student.id,
-              document_type: file.type || '',
-              file_name: file.name,
-              file_url: publicUrlData.publicUrl,
-            }]);
+            await documents.upload(formDataUpload);
           } catch (uploadErr) {
             console.error('Exception uploading document:', uploadErr);
           }
@@ -321,39 +265,33 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
 
       // Asignar materias
       if (student && selectedSubjects.length > 0) {
-        const studentSubjects = selectedSubjects.map(subjectId => ({
-          student_id: student.id,
-          subject_id: subjectId,
-          status: 'active',
-        }));
-
-        await supabase.from('student_subjects').insert(studentSubjects);
+        for (const subjectId of selectedSubjects) {
+          await studentSubjects.create({
+            student_id: student.id,
+            subject_id: subjectId,
+          });
+        }
       }
 
       // Asignar padecimientos
       if (student && selectedAilments.length > 0) {
-        const studentAilments = selectedAilments.map(ailmentId => ({
-          student_id: student.id,
-          ailment_id: ailmentId,
-          status: 'active',
-          diagnosis_date: ailmentDetails[ailmentId]?.diagnosisDate || null,
-          notes: ailmentDetails[ailmentId]?.notes || null,
-        }));
-
-        await supabase.from('student_ailments').insert(studentAilments);
+        for (const ailmentId of selectedAilments) {
+          await studentAilments.create({
+            student_id: student.id,
+            ailment_id: ailmentId,
+            notes: ailmentDetails[ailmentId]?.notes || null,
+          });
+        }
       }
 
       // Crear inscripción
       if (student) {
-        await supabase.from('enrollments').insert([{
+        await enrollments.create({
           student_id: student.id,
-          folio: formData.folio || `FOLIO-${student.id.slice(0, 8).toUpperCase()}`,
+          program_id: formData.inscriptionProgram === 'Programa I' ? 'program-1' : 'program-2', // Map to program IDs
+          status: 'active',
           enrollment_date: formData.inscriptionDate,
-          enrollment_type: formData.inscriptionType,
-          program: formData.inscriptionProgram,
-          representative_id: formData.representativeId || null,
-          status: 'activo',
-        }]);
+        });
       }
 
       // Show success confirmation modal instead of calling onSuccess immediately

@@ -425,3 +425,6 @@ export const dashboard = {
     return apiCall(ENDPOINTS.DASHBOARD.STATS(fromDate, toDate), { method: 'GET' });
   },
 };
+
+// Exportar API_BASE_URL para uso en componentes que necesiten llamadas directas
+export { API_BASE_URL };

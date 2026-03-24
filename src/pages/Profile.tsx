@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { users } from '../lib/api';
-import { API_BASE_URL, ENDPOINTS } from '../constants/endpoints';
+import { users, API_BASE_URL } from '../lib/api';
+import { ENDPOINTS } from '../constants/endpoints';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import { showToast } from '../components/Toast';
