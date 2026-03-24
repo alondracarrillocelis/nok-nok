@@ -4,7 +4,7 @@ import { auth } from '../lib/api';
 interface User {
   id: string;
   email: string;
-  name: string;
+  username: string;
   role: string;
 }
 
@@ -12,7 +12,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, name: string) => Promise<{ error: Error | null }>;
+  signUp: (firstName: string, paternalSurname: string, maternalSurname: string, email: string, password: string, phone: string, role: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
 }
 
@@ -27,8 +27,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const token = localStorage.getItem('auth_token');
         if (token) {
-          // Aquí podrías hacer una llamada para obtener el usuario actual
-          // Por ahora asumimos que el usuario está autenticado
           const userData = localStorage.getItem('user_data');
           if (userData) {
             setUser(JSON.parse(userData));
@@ -46,31 +44,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signIn = async (email: string, password: string) => {
     try {
       const response = await auth.login(email, password);
-      const userData = {
+      const userData: User = {
         id: response.user.id,
         email: response.user.email,
-        name: response.user.name || email,
+        username: response.user.username || email,
         role: response.user.role || 'user',
       };
+
       setUser(userData);
       localStorage.setItem('user_data', JSON.stringify(userData));
+
       return { error: null };
     } catch (err) {
       return { error: err as Error };
     }
   };
 
-  const signUp = async (email: string, password: string, name: string) => {
+  const signUp = async (firstName: string, paternalSurname: string, maternalSurname: string, email: string, password: string, phone: string, role: string) => {
     try {
-      const response = await auth.register(email, password, name);
-      const userData = {
+      const response = await auth.register(firstName, paternalSurname, maternalSurname, email, password, phone, role);
+      const userData: User = {
         id: response.user.id,
         email: response.user.email,
-        name: response.user.name || name,
+        username: `${firstName} ${paternalSurname} ${maternalSurname}`,
         role: response.user.role || 'user',
       };
+
       setUser(userData);
       localStorage.setItem('user_data', JSON.stringify(userData));
+
       return { error: null };
     } catch (err) {
       return { error: err as Error };
@@ -80,11 +82,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     try {
       await auth.logout();
+      setUser(null);
+      localStorage.removeItem('user_data');
     } catch (error) {
       console.error('Error during logout:', error);
     }
-    setUser(null);
-    localStorage.removeItem('user_data');
   };
 
   return (

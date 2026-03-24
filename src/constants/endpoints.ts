@@ -1,18 +1,107 @@
-/**
- * Endpoints API - Centralización de todas las rutas
- * Uso: import { ENDPOINTS } from '../constants/endpoints'
- * Ejemplo: ENDPOINTS.AUTH.LOGIN
- */
-
 export const ENDPOINTS = {
   // =====================================
   // AUTENTICACIÓN
   // =====================================
   AUTH: {
-    LOGIN: '/auth/login',
-    REGISTER: '/auth/register',
-    LOGOUT: '/auth/logout',
-    REFRESH: '/auth/refresh',
+    LOGIN: {
+      URL: '/auth/login',
+      METHOD: 'POST',
+      DESCRIPTION: 'Iniciar sesión',
+      REQUEST_BODY: {
+        email: 'string',
+        password: 'string',
+      },
+      RESPONSE: {
+        200: {
+          message: 'Sesión iniciada correctamente',
+          schema: {
+            accessToken: 'string',
+            refreshToken: 'string',
+            user: {
+              id: 'string',
+              email: 'string',
+              role: 'string',
+            },
+          },
+        },
+        401: {
+          error: 'string',
+          message: 'string',
+          statusCode: 0,
+        },
+      },
+    },
+    REGISTER: {
+      URL: '/auth/register',
+      METHOD: 'POST',
+      DESCRIPTION: 'Registrar usuario',
+      REQUEST_BODY: {
+        firstName: 'string',
+        paternalSurname: 'string',
+        maternalSurname: 'string',
+        email: 'string',
+        password: 'string',
+        phone: 'string',
+        role: 'string',
+      },
+      RESPONSE: {
+        201: {
+          message: 'Usuario creado exitosamente',
+          schema: {
+            user: {
+              id: 'string',
+              email: 'string',
+              role: 'string',
+              firstName: 'string',
+              paternalSurname: 'string',
+            },
+          },
+        },
+        409: {
+          error: 'string',
+          message: 'string',
+          statusCode: 0,
+        },
+      },
+    },
+    LOGOUT: {
+      URL: '/auth/logout',
+      METHOD: 'POST',
+      DESCRIPTION: 'Cerrar sesión',
+      REQUEST_BODY: {
+        refreshToken: 'string',
+      },
+      RESPONSE: {
+        200: {
+          message: 'Sesión cerrada correctamente',
+          schema: {
+            success: true,
+          },
+        },
+      },
+    },
+    REFRESH: {
+      URL: '/auth/refresh',
+      METHOD: 'POST',
+      DESCRIPTION: 'Renovar access token',
+      REQUEST_BODY: {
+        refreshToken: 'string',
+      },
+      RESPONSE: {
+        200: {
+          message: 'Tokens renovados exitosamente',
+          schema: {
+            accessToken: 'string',
+            refreshToken: 'string',
+          },
+        },
+        401: {
+          error: 'string',
+          message: 'string',
+          statusCode: 0,
+        },
+      },
+    },
   },
 
   // =====================================

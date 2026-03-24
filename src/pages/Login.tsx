@@ -1,11 +1,22 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-
+// {
+//   "firstName": "alondra",
+//   "paternalSurname": "carrillo",
+//   "maternalSurname": "celis",
+//   "email": "alo@gmail.com",
+//   "password": "12345678",
+//   "phone": "618908789",
+//   "role": "tutor"
+// }
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [paternalSurname, setPaternalSurname] = useState('');
+  const [maternalSurname, setMaternalSurname] = useState('');
+  const [phone, setPhone] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
@@ -19,7 +30,8 @@ export default function Login() {
 
     try {
       if (isSignUp) {
-        const { error: signUpError } = await signUp(email, password, name);
+
+        const { error: signUpError } = await signUp(firstName, paternalSurname, maternalSurname, email, password, phone, 'tutor');
 
         if (signUpError) {
           setError(signUpError.message);
@@ -27,7 +39,10 @@ export default function Login() {
           setError('');
           setEmail('');
           setPassword('');
-          setName('');
+          setFirstName('');
+          setPaternalSurname('');
+          setMaternalSurname('');
+          setPhone('');
           setIsSignUp(false);
           alert('Cuenta creada exitosamente. Ahora puedes iniciar sesión.');
           navigate('/dashboard');
@@ -71,17 +86,42 @@ export default function Login() {
         <form onSubmit={handleSubmit} className="space-y-6">
           {isSignUp && (
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">
-                Nombre Completo
-              </label>
+              <label className="block text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">Nombre              </label>
               <input
                 type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
                 className="w-full px-4 py-3 rounded-lg bg-gray-100 border-none focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
               />
+
+                <label className="block text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">Apellido Paterno              </label>
+              <input
+                type="text"
+                value={paternalSurname}
+                onChange={(e) => setPaternalSurname(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg bg-gray-100 border-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+                <label className="block text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">Apellido Materno              </label>
+              <input
+                type="text"
+                value={maternalSurname}
+                onChange={(e) => setMaternalSurname(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg bg-gray-100 border-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+                <label className="block text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">Celular              </label>
+              <input
+                type="text"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg bg-gray-100 border-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+           
             </div>
+            
           )}
 
           <div>
