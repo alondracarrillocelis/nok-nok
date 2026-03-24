@@ -1,14 +1,16 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [name, setName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
   const navigate = useNavigate();
+  const { signIn, signUp } = useAuth();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -17,34 +19,30 @@ export default function Login() {
 
     try {
       if (isSignUp) {
-        const { error } = await supabase.auth.signUp({
-          email,
-          password,
-        });
+        const { error: signUpError } = await signUp(email, password, name);
 
-        if (error) {
-          setError(error.message);
+        if (signUpError) {
+          setError(signUpError.message);
         } else {
           setError('');
           setEmail('');
           setPassword('');
+          setName('');
           setIsSignUp(false);
           alert('Cuenta creada exitosamente. Ahora puedes iniciar sesión.');
+          navigate('/dashboard');
         }
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+        const { error: signInError } = await signIn(email, password);
 
-        if (error) {
-          setError('Credenciales inválidas');
+        if (signInError) {
+          setError(signInError.message);
         } else {
           navigate('/dashboard');
         }
       }
     } catch (err) {
-      setError('Error en la autenticación');
+      setError(err instanceof Error ? err.message : 'Error en la autenticación');
     } finally {
       setLoading(false);
     }
@@ -71,6 +69,21 @@ export default function Login() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {isSignUp && (
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">
+                Nombre Completo
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg bg-gray-100 border-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2 uppercase tracking-wide">
               Correo Electrónico

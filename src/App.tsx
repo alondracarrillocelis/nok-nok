@@ -7,6 +7,7 @@ import Dashboard from './pages/Dashboard';
 import Students from './pages/Students';
 import Users from './pages/Users';
 import Subjects from './pages/Subjects';
+import Profile from './pages/Profile';
 
 function App() {
   return (
@@ -35,6 +36,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <Users />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <Profile />
               </ProtectedRoute>
             }
           />

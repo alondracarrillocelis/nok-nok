@@ -79,7 +79,15 @@ export default function Layout({ children }: LayoutProps) {
                 >
                   <Users size={20} />
                 </button>
-                <button className="p-3 rounded-full bg-gray-200 text-gray-600 hover:bg-gray-300 transition-colors" title="Configuración">
+                <button
+                  onClick={() => navigate('/profile')}
+                  className={`p-3 rounded-full transition-colors ${
+                    location.pathname === '/profile'
+                      ? 'bg-green-500 text-white'
+                      : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                  }`}
+                  title="Configuración"
+                >
                   <Settings size={20} />
                 </button>
                 <button

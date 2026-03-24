@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { subjects } from '../lib/api';
 import { showToast } from './Toast';
 
 interface EditSubjectModalProps {
@@ -24,13 +24,7 @@ export default function EditSubjectModal({ subjectId, onClose, onSuccess }: Edit
   useEffect(() => {
     const fetchSubject = async () => {
       try {
-        const { data, error } = await supabase
-          .from('subjects')
-          .select('*')
-          .eq('id', subjectId)
-          .single();
-
-        if (error) throw error;
+        const data = await subjects.getById(subjectId);
         if (data) {
           setFormData({
             name: data.name || '',
@@ -64,19 +58,13 @@ export default function EditSubjectModal({ subjectId, onClose, onSuccess }: Edit
     if (!validate()) return;
     setIsSaving(true);
     try {
-      const { error } = await supabase
-        .from('subjects')
-        .update({
-          name: formData.name,
-          code: formData.code,
-          description: formData.description,
-          credits: formData.credits,
-          status: formData.status,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', subjectId);
-
-      if (error) throw error;
+      await subjects.update(subjectId, {
+        name: formData.name,
+        code: formData.code,
+        description: formData.description,
+        credits: formData.credits,
+        status: formData.status,
+      });
       showToast('Materia actualizada exitosamente', 'success');
       onSuccess();
       onClose();

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Search, Plus, MoreVertical } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { users } from '../lib/api';
 import Layout from '../components/Layout';
 import AddUserModal from '../components/AddUserModal';
 import { showToast } from '../components/Toast';
@@ -37,16 +37,8 @@ export default function Users() {
 
   const fetchUsers = async () => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      if (data) {
-        setUsers(data);
-      }
+      const data = await users.list();
+      setUsers(data);
     } catch (error) {
       console.error('Error fetching users:', error);
       showToast('Error al cargar los usuarios', 'error');

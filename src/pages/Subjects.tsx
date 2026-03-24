@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Search, Plus, Trash2, Edit2, MoreVertical } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { subjects } from '../lib/api';
 import Layout from '../components/Layout';
 import EditSubjectModal from '../components/EditSubjectModal';
 import ConfirmationModal from '../components/ConfirmationModal';
@@ -53,14 +53,8 @@ export default function Subjects() {
 
   const fetchSubjects = async () => {
     try {
-      const { data } = await supabase
-        .from('subjects')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (data) {
-        setSubjects(data);
-      }
+      const data = await subjects.list();
+      setSubjects(data);
     } catch (error) {
       console.error('Error fetching subjects:', error);
       showToast('Error al cargar las materias', 'error');
@@ -109,17 +103,13 @@ export default function Subjects() {
 
     setIsLoading(true);
     try {
-      const { error } = await supabase.from('subjects').insert([
-        {
-          name: formData.name,
-          code: formData.code,
-          description: formData.description,
-          credits: formData.credits,
-          status: 'activo',
-        },
-      ]);
-
-      if (error) throw error;
+      await subjects.create({
+        name: formData.name,
+        code: formData.code,
+        description: formData.description,
+        credits: formData.credits,
+        status: 'activo',
+      });
 
       showToast('Materia agregada exitosamente', 'success');
       setFormData({ name: '', code: '', description: '', credits: 3 });
@@ -174,8 +164,7 @@ export default function Subjects() {
     showConfirmation('delete', async () => {
       setIsConfirmLoading(true);
       try {
-        const { error } = await supabase.from('subjects').delete().eq('id', id);
-        if (error) throw error;
+        await subjects.delete(id);
         showToast('Materia eliminada exitosamente', 'success');
         fetchSubjects();
         setSelectedSubjects(prev => {
@@ -199,8 +188,10 @@ export default function Subjects() {
       setIsConfirmLoading(true);
       try {
         const ids = Array.from(selectedSubjects);
-        const { error } = await supabase.from('subjects').delete().in('id', ids);
-        if (error) throw error;
+        // Delete subjects one by one since API doesn't support bulk delete
+        for (const id of ids) {
+          await subjects.delete(id);
+        }
         showToast(`${ids.length} materia(s) eliminada(s) exitosamente`, 'success');
         fetchSubjects();
         setSelectedSubjects(new Set());

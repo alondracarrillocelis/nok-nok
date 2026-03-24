@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { Search, Plus, MoreVertical, Eye, X, Download, FileText, ChevronLeft, ChevronRight, Edit2, Trash2, BookOpen, Trash } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { students, studentSubjects, studentAilments, documents } from '../lib/api';
 import Layout from '../components/Layout';
 import AddStudentModal from '../components/AddStudentModal';
 import EditStudentModal from '../components/EditStudentModal';
@@ -16,6 +16,8 @@ interface Student {
   current_level: string;
   enrollment_date: string;
   status: 'activo' | 'pendiente' | 'baja';
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
 }
 
 interface Tutor {
@@ -50,6 +52,7 @@ export default function Students() {
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [enrollmentDateFilter, setEnrollmentDateFilter] = useState<string>('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
@@ -93,16 +96,15 @@ export default function Students() {
   useEffect(() => {
     filterStudents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [students, searchTerm, statusFilter]);
+  }, [students, searchTerm, statusFilter, enrollmentDateFilter]);
 
   const fetchStudents = async () => {
-    const { data } = await supabase
-      .from('students')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (data) {
-      setStudents(data);
+    try {
+      const response = await students.list();
+      setStudents(response.data);
+    } catch (error) {
+      console.error('Error fetching students:', error);
+      showToast('Error al cargar alumnos', 'error');
     }
   };
 
@@ -119,6 +121,10 @@ export default function Students() {
           .toLowerCase()
           .includes(searchTerm.toLowerCase())
       );
+    }
+
+    if (enrollmentDateFilter) {
+      filtered = filtered.filter(s => s.enrollment_date.startsWith(enrollmentDateFilter));
     }
 
     setFilteredStudents(filtered);
@@ -157,35 +163,39 @@ export default function Students() {
 
     setCurrentDetailTab('info');
     try {
-      // fetch base student (in case we need freshest data)
-      const { data: stuData } = await supabase.from('students').select('*').eq('id', student.id).single();
+      // fetch base student with details
+      const stuData = await students.getById(student.id);
 
-      // fetch tutors
-      const { data: tutors } = await supabase.from('tutors').select('*').eq('student_id', student.id);
-
-      // fetch student_subjects -> subjects
-      const { data: studentSubjects } = await supabase
-        .from('student_subjects')
-        .select('subject_id')
-        .eq('student_id', student.id);
+      // fetch student_subjects
+      const subjectsResponse = await studentSubjects.list(student.id);
       let subjects: SubjectShort[] = [];
-      if (studentSubjects && studentSubjects.length > 0) {
-        const ids = (studentSubjects as { subject_id: string }[]).map((s) => s.subject_id);
-        const { data: subs } = await supabase.from('subjects').select('id,name,code').in('id', ids);
-        if (subs) subjects = subs;
+      if (subjectsResponse.data && subjectsResponse.data.length > 0) {
+        subjects = subjectsResponse.data.map((ss: any) => ({
+          id: ss.subject.id,
+          name: ss.subject.name,
+          code: ss.subject.code,
+        }));
       }
 
       // fetch documents
-      const { data: documents } = await supabase.from('documents').select('*').eq('student_id', student.id).order('uploaded_at', { ascending: false });
+      const docsResponse = await documents.list(student.id);
+      const docs: DocumentFile[] = docsResponse.data.map((d: any) => ({
+        id: d.id,
+        document_type: d.file_type,
+        file_name: d.file_name,
+        file_url: d.file_url,
+        uploaded_at: d.uploaded_at,
+      }));
 
       const detailed: DetailedStudent = {
         ...(stuData || student),
-        tutors: tutors || [],
-        subjects: subjects || [],
-        documents: documents || [],
+        tutors: [],
+        subjects: subjects,
+        documents: docs,
       };
 
       setSelectedStudent(detailed);
+      setCurrentDetailTab('tutores');
       setOpenMenuId(null);
     } catch (error) {
       console.error('Error fetching student details:', error);
@@ -224,13 +234,13 @@ export default function Students() {
   };
 
   const handleDeleteStudent = async (studentId: string) => {
-    const student = students.find(s => s.id === studentId);
+    const student = filteredStudents.find(s => s.id === studentId) || students.find(s => s.id === studentId);
     if (!student) return;
 
     showConfirmation('delete', async () => {
       setIsConfirmLoading(true);
       try {
-        await supabase.from('students').delete().eq('id', studentId);
+        await students.delete(studentId);
         showToast('Alumno/a eliminado exitosamente', 'success');
         fetchStudents();
         setSelectedStudent(null);
@@ -252,7 +262,9 @@ export default function Students() {
       setIsConfirmLoading(true);
       try {
         const idsArray = Array.from(selectedStudents);
-        await supabase.from('students').delete().in('id', idsArray);
+        for (const id of idsArray) {
+          await students.delete(id);
+        }
         showToast(`${selectedStudents.size} alumno(s) eliminado(s) exitosamente`, 'success');
         fetchStudents();
         setSelectedStudents(new Set());
@@ -314,40 +326,34 @@ export default function Students() {
             <div className="flex-1 overflow-y-auto">
               {currentDetailTab === 'info' && (
                 <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-blue-50 p-3 rounded-lg">
-                      <p className="text-xs text-gray-600">Nombre Completo</p>
-                      <p className="font-semibold text-gray-900 truncate">
-                        {selectedStudent.first_name} {selectedStudent.paternal_surname} {selectedStudent.maternal_surname}
-                      </p>
-                    </div>
-                    <div className="bg-purple-50 p-3 rounded-lg">
-                      <p className="text-xs text-gray-600">Matrícula</p>
-                      <p className="font-semibold text-gray-900">{selectedStudent.enrollment_number}</p>
-                    </div>
-                    <div className="bg-green-50 p-3 rounded-lg">
-                      <p className="text-xs text-gray-600">Nivel</p>
-                      <p className="font-semibold text-gray-900">{selectedStudent.current_level}</p>
-                    </div>
-                    <div className="bg-orange-50 p-3 rounded-lg">
-                      <p className="text-xs text-gray-600">Estado</p>
-                      <span className={`inline-block px-2 py-1 rounded text-xs font-semibold ${getStatusColor(selectedStudent.status)}`}>
-                        {selectedStudent.status}
-                      </span>
-                    </div>
+                  <div>
+                    <p>Nombre Completo: {selectedStudent.first_name} {selectedStudent.paternal_surname} {selectedStudent.maternal_surname}</p>
                   </div>
-                  
-                  <div className="bg-gray-50 p-3 rounded-lg">
-                    <p className="text-xs text-gray-600 mb-1">Fecha de Inscripción</p>
-                    <p className="font-semibold text-gray-900">
-                      {new Date(selectedStudent.enrollment_date).toLocaleDateString('es-ES', { 
-                        weekday: 'long', 
-                        year: 'numeric', 
-                        month: 'long', 
-                        day: 'numeric' 
-                      })}
-                    </p>
+                  <div>
+                    <p>Matrícula: {selectedStudent.enrollment_number}</p>
                   </div>
+                  <div>
+                    <p>Nivel: {selectedStudent.current_level}</p>
+                  </div>
+                  <div>
+                    <p>Estado: {selectedStudent.status}</p>
+                  </div>
+                  <div>
+                    <p>Fecha de Inscripción: {new Date(selectedStudent.enrollment_date).toLocaleDateString('es-ES', { 
+                      weekday: 'long', 
+                      year: 'numeric', 
+                      month: 'long', 
+                      day: 'numeric' 
+                    })}</p>
+                  </div>
+                  {(selectedStudent.emergency_contact_name || selectedStudent.emergency_contact_phone) && (
+                    <div>
+                      <p>Contacto de emergencia: {selectedStudent.emergency_contact_name || '—'}</p>
+                      {selectedStudent.emergency_contact_phone && (
+                        <p>Teléfono: {selectedStudent.emergency_contact_phone}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -355,23 +361,13 @@ export default function Students() {
                 <div className="space-y-3">
                   {selectedStudent.tutors && selectedStudent.tutors.length > 0 ? (
                     selectedStudent.tutors.map((tutor) => (
-                      <div key={tutor.id} className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-gray-900">👨‍🏫 {tutor.name}</p>
-                            {tutor.phone && (
-                              <p className="text-sm text-gray-600 mt-1">📱 {tutor.phone}</p>
-                            )}
-                            {tutor.email && (
-                              <p className="text-sm text-gray-600 truncate">📧 {tutor.email}</p>
-                            )}
-                          </div>
-                        </div>
+                      <div key={tutor.id}>
+                        <p>{tutor.name}</p>
                       </div>
                     ))
                   ) : (
-                    <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 text-center">
-                      <p className="text-sm text-yellow-800">No hay tutores asignados</p>
+                    <div>
+                      <p>No hay tutores asignados</p>
                     </div>
                   )}
                 </div>
@@ -381,16 +377,13 @@ export default function Students() {
                 <div className="space-y-2">
                   {selectedStudent.subjects && selectedStudent.subjects.length > 0 ? (
                     selectedStudent.subjects.map((subject) => (
-                      <div key={subject.id} className="bg-green-50 p-3 rounded-lg border border-green-200 flex items-center justify-between">
-                        <div className="min-w-0">
-                          <p className="font-semibold text-gray-900">📚 {subject.name}</p>
-                          <p className="text-xs text-gray-600">{subject.code}</p>
-                        </div>
+                      <div key={subject.id}>
+                        <p>{subject.name} - {subject.code}</p>
                       </div>
                     ))
                   ) : (
-                    <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 text-center">
-                      <p className="text-sm text-yellow-800">No hay materias asignadas</p>
+                    <div>
+                      <p>No hay materias asignadas</p>
                     </div>
                   )}
                 </div>
@@ -400,28 +393,14 @@ export default function Students() {
                 <div className="space-y-2">
                   {selectedStudent.documents && selectedStudent.documents.length > 0 ? (
                     selectedStudent.documents.map((doc) => (
-                      <div key={doc.id} className="bg-purple-50 p-3 rounded-lg border border-purple-200 flex items-center justify-between">
-                        <div className="flex items-center space-x-2 min-w-0">
-                          <FileText size={16} className="text-purple-600 flex-shrink-0" />
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-gray-900 truncate">{doc.file_name}</p>
-                            <p className="text-xs text-gray-500">{doc.document_type || 'Archivo'}</p>
-                          </div>
-                        </div>
-                        <a
-                          href={doc.file_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-purple-600 hover:text-purple-800 flex-shrink-0 ml-2"
-                          title="Descargar"
-                        >
-                          <Download size={16} />
-                        </a>
+                      <div key={doc.id}>
+                        <p>{doc.file_name} - {doc.document_type || 'Archivo'}</p>
+                        <a href={doc.file_url} target="_blank" rel="noopener noreferrer">Descargar</a>
                       </div>
                     ))
                   ) : (
-                    <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200 text-center">
-                      <p className="text-sm text-yellow-800">No hay documentos</p>
+                    <div>
+                      <p>No hay documentos</p>
                     </div>
                   )}
                 </div>
@@ -512,6 +491,14 @@ export default function Students() {
                 className="pl-10 pr-4 py-2 rounded-full bg-white border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500"
               />
               <Search className="absolute left-3 top-2.5 text-gray-400" size={20} />
+            </div>
+            <div className="relative">
+              <input
+                type="date"
+                value={enrollmentDateFilter}
+                onChange={(e) => setEnrollmentDateFilter(e.target.value)}
+                className="px-4 py-2 rounded-full bg-white border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
             </div>
           </div>
         </div>
