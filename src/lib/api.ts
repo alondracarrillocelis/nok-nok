@@ -3,7 +3,7 @@
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 import { ENDPOINTS, HTTP_METHODS } from '../constants/endpoints';
 
-const wrap = (key: string, any) => ({ [key]: data });
+const wrap = (key: string, data: any) => ({ [key]: data });
 
 // ================= HEADERS =================
 const getAuthHeader = (): HeadersInit => {
@@ -100,7 +100,7 @@ export const students = {
   getById: (id: string) =>
     apiCall(ENDPOINTS.STUDENTS.GET_BY_ID(id)),
 
-  update: (id: string, any) =>
+  update: (id: string, data: any) =>
     apiCall(ENDPOINTS.STUDENTS.UPDATE(id), {
       method: HTTP_METHODS.PATCH,
       body: JSON.stringify(wrap('student', data)),
@@ -108,6 +108,26 @@ export const students = {
 
   delete: (id: string) =>
     apiCall(ENDPOINTS.STUDENTS.DELETE(id), { method: HTTP_METHODS.DELETE }),
+};
+
+// ================= TUTORS =================
+export const tutors = {
+  list: () => apiCall(ENDPOINTS.TUTORS.LIST),
+
+  create: (data: any) =>
+    apiCall(ENDPOINTS.TUTORS.CREATE, {
+      method: HTTP_METHODS.POST,
+      body: JSON.stringify(wrap('tutor', data)),
+    }),
+
+  update: (id: string, data: any) =>
+    apiCall(ENDPOINTS.TUTORS.UPDATE(id), {
+      method: HTTP_METHODS.PATCH,
+      body: JSON.stringify(wrap('tutor', data)),
+    }),
+
+  delete: (id: string) =>
+    apiCall(ENDPOINTS.TUTORS.DELETE(id), { method: HTTP_METHODS.DELETE }),
 };
 
 // ================= SUBJECTS =================
@@ -123,7 +143,7 @@ export const subjects = {
   getById: (id: string) =>
     apiCall(ENDPOINTS.SUBJECTS.GET_BY_ID(id)),
 
-  update: (id: string, any) =>
+  update: (id: string, data: any) =>
     apiCall(ENDPOINTS.SUBJECTS.UPDATE(id), {
       method: HTTP_METHODS.PATCH,
       body: JSON.stringify(wrap('subject', data)),
@@ -143,7 +163,7 @@ export const ailments = {
       body: JSON.stringify(wrap('ailment', ailment)),
     }),
 
-  update: (id: string, any) =>
+  update: (id: string, data: any) =>
     apiCall(ENDPOINTS.AILMENTS.UPDATE(id), {
       method: HTTP_METHODS.PATCH,
       body: JSON.stringify(wrap('ailment', data)),
@@ -171,7 +191,7 @@ export const users = {
   getCurrentUser: () =>
     apiCall(ENDPOINTS.USERS.GET_CURRENT),
 
-  update: (id: string, any) =>
+  update: (id: string, data: any) =>
     apiCall(ENDPOINTS.USERS.UPDATE(id), {
       method: HTTP_METHODS.PATCH,
       body: JSON.stringify(wrap('user', data)),
@@ -183,13 +203,13 @@ export const enrollments = {
   list: (studentId?: string) =>
     apiCall(ENDPOINTS.ENROLLMENTS.LIST(studentId)),
 
-  create: (any) =>
+  create: (data: any) =>
     apiCall(ENDPOINTS.ENROLLMENTS.CREATE, {
       method: HTTP_METHODS.POST,
       body: JSON.stringify(wrap('enrollment', data)),
     }),
 
-  update: (id: string, any) =>
+  update: (id: string, data: any) =>
     apiCall(ENDPOINTS.ENROLLMENTS.UPDATE(id), {
       method: HTTP_METHODS.PATCH,
       body: JSON.stringify(wrap('enrollment', data)),
@@ -204,13 +224,13 @@ export const studentAilments = {
   list: (studentId: string) =>
     apiCall(ENDPOINTS.STUDENT_AILMENTS.LIST(studentId)),
 
-  create: (any) =>
+  create: (data: any) =>
     apiCall(ENDPOINTS.STUDENT_AILMENTS.CREATE, {
       method: HTTP_METHODS.POST,
       body: JSON.stringify(wrap('student_ailment', data)),
     }),
 
-  update: (id: string, any) =>
+  update: (id: string, data: any) =>
     apiCall(ENDPOINTS.STUDENT_AILMENTS.UPDATE(id), {
       method: HTTP_METHODS.PATCH,
       body: JSON.stringify(wrap('student_ailment', data)),
@@ -225,7 +245,7 @@ export const studentSubjects = {
   list: (studentId: string) =>
     apiCall(ENDPOINTS.STUDENT_SUBJECTS.LIST(studentId)),
 
-  create: (any) =>
+  create: (data: any) =>
     apiCall(ENDPOINTS.STUDENT_SUBJECTS.CREATE, {
       method: HTTP_METHODS.POST,
       body: JSON.stringify(wrap('student_subject', data)),

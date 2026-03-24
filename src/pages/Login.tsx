@@ -31,7 +31,7 @@ export default function Login() {
     try {
       if (isSignUp) {
 
-        const { error: signUpError } = await signUp(email, password, name);
+        const { error: signUpError } = await signUp(firstName, paternalSurname, maternalSurname, email, password, phone, 'tutor');
 
         if (signUpError) {
           setError(signUpError.message);
