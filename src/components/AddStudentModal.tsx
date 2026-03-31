@@ -713,12 +713,12 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
                 </select>
               </div>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+              {/* <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
                 <p className="text-sm font-semibold text-blue-800">Información de Inscripción</p>
                 <p className="text-xs text-blue-700">
                   Completa los datos de inscripción del alumno/a. El folio se autogenerará si lo dejas en blanco.
                 </p>
-              </div>
+              </div> */}
 
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-3">
@@ -802,11 +802,11 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
                 <FieldError message={errors.tutorEmail} />
               </div>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              {/* <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-sm text-blue-700">
                   Los datos del tutor son opcionales. Continúa al siguiente paso para agregar padecimientos.
                 </p>
-              </div>
+              </div> */}
             </div>
           )}
 
@@ -860,11 +860,11 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
                 </div>
               )}
 
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              {/* <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-sm text-blue-700">
                   Usa esta lista como referencia rápida y completa solo los datos necesarios de cada padecimiento.
                 </p>
-              </div>
+              </div> */}
             </div>
           )}
 

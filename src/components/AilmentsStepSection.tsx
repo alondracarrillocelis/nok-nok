@@ -63,12 +63,12 @@ export default function AilmentsStepSection({
   return (
     <div className="space-y-4">
       <div>
-        <label className="mb-3 block text-sm font-semibold text-gray-700">
+        {/* <label className="mb-3 block text-sm font-semibold text-gray-700">
           Padecimientos del alumno (Condiciones de Salud)
         </label>
         <p className="mb-4 text-sm text-gray-600">
           Los padecimientos que agregues quedarán asignados a este alumno.
-        </p>
+        </p> */}
 
         <div className="mb-6 space-y-5 rounded-2xl border border-gray-200 bg-gradient-to-br from-white to-slate-50 p-5 shadow-sm">
           <div className="flex items-center gap-3">
@@ -84,7 +84,7 @@ export default function AilmentsStepSection({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
-                <ClipboardList size={16} className={titleIconClass} />
+                {/* <ClipboardList size={16} className={titleIconClass} /> */}
                 Nombre del padecimiento *
               </label>
               <input
@@ -98,7 +98,7 @@ export default function AilmentsStepSection({
 
             <div>
               <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
-                <ShieldAlert size={16} className="text-amber-600" />
+                {/* <ShieldAlert size={16} className="text-amber-600" /> */}
                 Severidad
               </label>
               <select
@@ -116,7 +116,7 @@ export default function AilmentsStepSection({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
-                <FileText size={16} className="text-slate-600" />
+                {/* <FileText size={16} className="text-slate-600" /> */}
                 Descripción general
               </label>
               <input
@@ -130,7 +130,7 @@ export default function AilmentsStepSection({
 
             <div>
               <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
-                <Pill size={16} className="text-blue-600" />
+                {/* <Pill size={16} className="text-blue-600" /> */}
                 Medicamento
               </label>
               <input
@@ -147,7 +147,7 @@ export default function AilmentsStepSection({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
-                <NotebookPen size={16} className="text-purple-600" />
+                {/* <NotebookPen size={16} className="text-purple-600" /> */}
                 Descripción médica
               </label>
               <input
@@ -161,7 +161,7 @@ export default function AilmentsStepSection({
 
             <div>
               <label className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
-                <CalendarDays size={16} className="text-teal-600" />
+                {/* <CalendarDays size={16} className="text-teal-600" /> */}
                 Notas y seguimiento
               </label>
               <input

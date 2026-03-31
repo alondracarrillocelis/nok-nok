@@ -1,5 +1,5 @@
 import { useEffect, useState, lazy, Suspense } from 'react';
-import { Search, Plus, MoreVertical, RefreshCw } from 'lucide-react';
+import { Search, Plus, MoreVertical } from 'lucide-react';
 import { users as usersApi } from '../lib/api';
 import Layout from '../components/Layout';
 const AddUserModal = lazy(() => import('../components/AddUserModal'));
@@ -206,13 +206,17 @@ export default function Users() {
               <Plus size={20} />
               <span>Agregar Usuario</span>
             </button>
+            {/*
             <button
               onClick={() => fetchUsers()}
-              className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-3 rounded-full font-semibold hover:bg-gray-50 transition-colors"
+              disabled
+              title="Recarga deshabilitada temporalmente"
+              className="flex items-center gap-2 bg-white border border-gray-200 text-gray-400 px-4 py-3 rounded-full font-semibold cursor-not-allowed"
             >
               <RefreshCw size={18} />
               Recargar
             </button>
+            */}
           </div>
 
           <div className="flex items-center space-x-4">
@@ -227,6 +231,69 @@ export default function Users() {
               <Search className="absolute left-3 top-2.5 text-gray-400" size={20} />
             </div>
           </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <button
+            onClick={() => setRoleFilter('all')}
+            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
+              roleFilter === 'all'
+                ? 'bg-gray-200 text-gray-800'
+                : 'bg-white text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            Todos ({users.length})
+          </button>
+          <button
+            onClick={() => setRoleFilter('tutor')}
+            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
+              roleFilter === 'tutor'
+                ? 'bg-blue-500 text-white'
+                : 'bg-white text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            Tutores ({users.filter(u => u.role === 'tutor').length})
+          </button>
+          <button
+            onClick={() => setRoleFilter('admin')}
+            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
+              roleFilter === 'admin'
+                ? 'bg-purple-500 text-white'
+                : 'bg-white text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            Administradores ({users.filter(u => u.role === 'admin').length})
+          </button>
+          <button
+            onClick={() => setStatusFilter('all')}
+            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
+              statusFilter === 'all'
+                ? 'bg-gray-200 text-gray-800'
+                : 'bg-white text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            Todos estados ({users.length})
+          </button>
+          <button
+            onClick={() => setStatusFilter('activo')}
+            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
+              statusFilter === 'activo'
+                ? 'bg-green-500 text-white'
+                : 'bg-white text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            Activos ({users.filter(u => u.status === 'activo').length})
+          </button>
+          <button
+            onClick={() => setStatusFilter('inactivo')}
+            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
+              statusFilter === 'inactivo'
+                ? 'bg-red-500 text-white'
+                : 'bg-white text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            Inactivos ({users.filter(u => u.status === 'inactivo').length})
+          </button>
         </div>
 
         <div className="bg-white rounded-3xl shadow-lg overflow-hidden">
@@ -375,68 +442,6 @@ export default function Users() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <button
-            onClick={() => setRoleFilter('all')}
-            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-              roleFilter === 'all'
-                ? 'bg-gray-200 text-gray-800'
-                : 'bg-white text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            Todos ({users.length})
-          </button>
-          <button
-            onClick={() => setRoleFilter('tutor')}
-            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-              roleFilter === 'tutor'
-                ? 'bg-blue-500 text-white'
-                : 'bg-white text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            Tutores ({users.filter(u => u.role === 'tutor').length})
-          </button>
-          <button
-            onClick={() => setRoleFilter('admin')}
-            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-              roleFilter === 'admin'
-                ? 'bg-purple-500 text-white'
-                : 'bg-white text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            Administradores ({users.filter(u => u.role === 'admin').length})
-          </button>
-          <button
-            onClick={() => setStatusFilter('all')}
-            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-              statusFilter === 'all'
-                ? 'bg-gray-200 text-gray-800'
-                : 'bg-white text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            Todos estados ({users.length})
-          </button>
-          <button
-            onClick={() => setStatusFilter('activo')}
-            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-              statusFilter === 'activo'
-                ? 'bg-green-500 text-white'
-                : 'bg-white text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            Activos ({users.filter(u => u.status === 'activo').length})
-          </button>
-          <button
-            onClick={() => setStatusFilter('inactivo')}
-            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-              statusFilter === 'inactivo'
-                ? 'bg-red-500 text-white'
-                : 'bg-white text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            Inactivos ({users.filter(u => u.status === 'inactivo').length})
-          </button>
-        </div>
       </div>
 
       {showAddModal && (

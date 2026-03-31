@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, lazy, Suspense } from 'react';
-import { Search, Plus, MoreVertical, Eye, X, Edit2, Trash2, BookOpen, Trash, RefreshCw, Bot } from 'lucide-react';
+import { Search, Plus, MoreVertical, Eye, X, Edit2, Trash2, BookOpen, Trash, Bot } from 'lucide-react';
 import { students as studentsApi, StudentDetailResponse } from '../lib/api';
 import Layout from '../components/Layout';
 const AddStudentModal = lazy(() => import('../components/AddStudentModal'));
@@ -543,50 +543,111 @@ export default function Students() {
               <Plus size={20} />
               <span>Agregar Alumno/a</span>
             </button>
+            {/*
             <button
               type="button"
               onClick={() => fetchStudents()}
-              className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-3 rounded-full font-semibold hover:bg-gray-50 transition-colors"
+              disabled
+              title="Recarga deshabilitada temporalmente"
+              className="flex items-center gap-2 bg-white border border-gray-200 text-gray-400 px-4 py-3 rounded-full font-semibold cursor-not-allowed"
             >
               <RefreshCw size={18} />
               Recargar
             </button>
+            */}
           </div>
 
-          <div className="flex items-center space-x-4">
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Buscar"
-                value={searchTerm}
-                onChange={(e) => {
-                  setPage(1);
-                  setSearchTerm(e.target.value);
-                }}
-                className="pl-10 pr-4 py-2 rounded-full bg-white border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500"
-              />
-              <Search className="absolute left-3 top-2.5 text-gray-400" size={20} />
+          <div className="flex flex-col items-end gap-3">
+            <div className="flex items-center space-x-4">
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Buscar"
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setPage(1);
+                    setSearchTerm(e.target.value);
+                  }}
+                  className="pl-10 pr-4 py-2 rounded-full bg-white border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+                <Search className="absolute left-3 top-2.5 text-gray-400" size={20} />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="month"
+                  value={enrollmentMonthFilter}
+                  onChange={(e) => setEnrollmentMonthFilter(e.target.value)}
+                  className="px-4 py-2 rounded-full bg-white border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => setEnrollmentMonthFilter(getPreviousMonthValue())}
+                  className="px-4 py-2 rounded-full bg-white border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  Mes pasado
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEnrollmentMonthFilter('')}
+                  className="px-4 py-2 rounded-full bg-white border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  Limpiar
+                </button>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="month"
-                value={enrollmentMonthFilter}
-                onChange={(e) => setEnrollmentMonthFilter(e.target.value)}
-                className="px-4 py-2 rounded-full bg-white border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500"
-              />
+
+            <div className="flex flex-wrap flex-row-reverse items-center justify-end gap-4">
               <button
-                type="button"
-                onClick={() => setEnrollmentMonthFilter(getPreviousMonthValue())}
-                className="px-4 py-2 rounded-full bg-white border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
+                onClick={() => {
+                  setPage(1);
+                  setStatusFilter('all');
+                }}
+                className={`px-6 py-2 rounded-full font-semibold transition-colors ${
+                  statusFilter === 'all'
+                    ? 'bg-gray-200 text-gray-800'
+                    : 'bg-white text-gray-600 hover:bg-gray-100'
+                }`}
               >
-                Mes pasado
+                Todos ({totalStudents})
               </button>
               <button
-                type="button"
-                onClick={() => setEnrollmentMonthFilter('')}
-                className="px-4 py-2 rounded-full bg-white border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
+                onClick={() => {
+                  setPage(1);
+                  setStatusFilter('activo');
+                }}
+                className={`px-6 py-2 rounded-full font-semibold transition-colors ${
+                  statusFilter === 'activo'
+                    ? 'bg-green-500 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-100'
+                }`}
               >
-                Limpiar
+                Activo
+              </button>
+              <button
+                onClick={() => {
+                  setPage(1);
+                  setStatusFilter('pendiente');
+                }}
+                className={`px-6 py-2 rounded-full font-semibold transition-colors ${
+                  statusFilter === 'pendiente'
+                    ? 'bg-yellow-500 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                Pendiente
+              </button>
+              <button
+                onClick={() => {
+                  setPage(1);
+                  setStatusFilter('baja');
+                }}
+                className={`px-6 py-2 rounded-full font-semibold transition-colors ${
+                  statusFilter === 'baja'
+                    ? 'bg-red-500 text-white'
+                    : 'bg-white text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                Baja
               </button>
             </div>
           </div>
@@ -776,60 +837,6 @@ export default function Students() {
           </button>
         </div>
 
-        <div className="flex flex-wrap items-center justify-center gap-4">
-          <button
-            onClick={() => {
-              setPage(1);
-              setStatusFilter('all');
-            }}
-            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-              statusFilter === 'all'
-                ? 'bg-gray-200 text-gray-800'
-                : 'bg-white text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            Todos ({totalStudents})
-          </button>
-          <button
-            onClick={() => {
-              setPage(1);
-              setStatusFilter('activo');
-            }}
-            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-              statusFilter === 'activo'
-                ? 'bg-green-500 text-white'
-                : 'bg-white text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            Activo
-          </button>
-          <button
-            onClick={() => {
-              setPage(1);
-              setStatusFilter('pendiente');
-            }}
-            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-              statusFilter === 'pendiente'
-                ? 'bg-yellow-500 text-white'
-                : 'bg-white text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            Pendiente
-          </button>
-          <button
-            onClick={() => {
-              setPage(1);
-              setStatusFilter('baja');
-            }}
-            className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-              statusFilter === 'baja'
-                ? 'bg-red-500 text-white'
-                : 'bg-white text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            Baja
-          </button>
-        </div>
       </div>
 
       {showAddModal && (

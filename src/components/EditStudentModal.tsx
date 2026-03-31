@@ -864,11 +864,11 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                 <FieldError message={errors.tutorEmail} />
               </div>
 
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+              {/* <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-sm text-blue-700">
                   Los datos del tutor son opcionales. Continúa al siguiente paso para agregar padecimientos.
                 </p>
-              </div>
+              </div> */}
             </div>
           )}
 
@@ -917,11 +917,7 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                 </div>
               )}
 
-              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                <p className="text-sm text-green-700">
-                  Usa esta lista como referencia rápida y completa solo los datos necesarios de cada padecimiento.
-                </p>
-              </div>
+             
             </div>
           )}
 
