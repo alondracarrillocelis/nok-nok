@@ -11,6 +11,9 @@ export const ENDPOINTS = {
   AUTH: {
     LOGIN: '/auth/login',
     REGISTER: '/auth/register',
+    VERIFY_EMAIL: '/auth/verify-email',
+    FORGOT_PASSWORD: '/auth/forgot-password',
+    RESET_PASSWORD: '/auth/reset-password',
     LOGOUT: '/auth/logout',
     REFRESH: '/auth/refresh',
   },
@@ -62,7 +65,7 @@ export const ENDPOINTS = {
   // MATERIAS DE ALUMNOS
   // =====================================
   STUDENT_SUBJECTS: {
-    LIST: (studentId: string) => `/student-subjects/?student_id=${studentId}`,
+    LIST: (studentId: string) => `/student-subjects/?studentId=${studentId}`,
     CREATE: '/student-subjects/',
     DELETE: (id: string) => `/student-subjects/${id}`,
   },
@@ -71,7 +74,7 @@ export const ENDPOINTS = {
   // PADECIMIENTOS DE ALUMNOS
   // =====================================
   STUDENT_AILMENTS: {
-    LIST: (studentId: string) => `/student-ailments/?student_id=${studentId}`,
+    LIST: (studentId: string) => `/student-ailments/?studentId=${studentId}`,
     CREATE: '/student-ailments/',
     UPDATE: (id: string) => `/student-ailments/${id}`,
     DELETE: (id: string) => `/student-ailments/${id}`,
@@ -82,7 +85,7 @@ export const ENDPOINTS = {
   // =====================================
   ENROLLMENTS: {
     LIST: (studentId?: string) =>
-      studentId ? `/enrollments/?student_id=${studentId}` : '/enrollments/',
+      studentId ? `/enrollments/?studentId=${studentId}` : '/enrollments/',
     CREATE: '/enrollments/',
     GET_BY_ID: (id: string) => `/enrollments/${id}`,
     UPDATE: (id: string) => `/enrollments/${id}`,
@@ -94,7 +97,7 @@ export const ENDPOINTS = {
   // =====================================
   DOCUMENTS: {
     LIST: (studentId?: string) =>
-      studentId ? `/documents/?student_id=${studentId}` : '/documents/',
+      studentId ? `/documents/?studentId=${studentId}` : '/documents/',
     UPLOAD: '/documents/',
     DELETE: (id: string) => `/documents/${id}`,
   },
@@ -105,7 +108,6 @@ export const ENDPOINTS = {
   USERS: {
     LIST: '/users/',
     CREATE: '/users/',
-    GET_CURRENT: '/users/me',
     UPDATE: (id: string) => `/users/${id}`,
   },
 

@@ -10,29 +10,46 @@ interface EditSubjectModalProps {
 }
 
 export default function EditSubjectModal({ subjectId, onClose, onSuccess }: EditSubjectModalProps) {
-  const [formData, setFormData] = useState({
+  const initialFormData = {
     name: '',
     code: '',
     description: '',
     credits: 3,
     status: 'activo' as 'activo' | 'inactivo',
-  });
+  };
+  const [formData, setFormData] = useState(initialFormData);
+  const [savedFormData, setSavedFormData] = useState(initialFormData);
+  const [showUnsavedChangesConfirm, setShowUnsavedChangesConfirm] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const hasUnsavedChanges = () => {
+    return JSON.stringify(formData) !== JSON.stringify(savedFormData);
+  };
+
+  const handleClose = () => {
+    if (hasUnsavedChanges()) {
+      setShowUnsavedChangesConfirm(true);
+    } else {
+      onClose();
+    }
+  };
 
   useEffect(() => {
     const fetchSubject = async () => {
       try {
         const data = await subjects.getById(subjectId);
         if (data) {
-          setFormData({
+          const formValues = {
             name: data.name || '',
             code: data.code || '',
             description: data.description || '',
             credits: data.credits ?? 3,
             status: (data.status === 'inactivo' ? 'inactivo' : 'activo'),
-          });
+          };
+          setFormData(formValues);
+          setSavedFormData(formValues);
         }
       } catch (error) {
         console.error('Error fetching subject:', error);
@@ -98,7 +115,7 @@ export default function EditSubjectModal({ subjectId, onClose, onSuccess }: Edit
             <h2 className="text-2xl font-bold text-gray-900">Editar Materia</h2>
             <p className="text-sm text-gray-500">Actualiza los datos de la materia</p>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+          <button onClick={handleClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
             <X size={24} className="text-gray-600" />
           </button>
         </div>
@@ -168,7 +185,7 @@ export default function EditSubjectModal({ subjectId, onClose, onSuccess }: Edit
 
         <div className="flex items-center justify-end space-x-4 mt-8 pt-6 border-t border-gray-200">
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className="px-8 py-2 border border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
           >
             Cancelar
@@ -182,6 +199,20 @@ export default function EditSubjectModal({ subjectId, onClose, onSuccess }: Edit
           </button>
         </div>
       </div>
+
+      <ConfirmationModal
+        isOpen={showUnsavedChangesConfirm}
+        type="warning"
+        title="Cambios Sin Guardar"
+        message="Tienes cambios sin guardar. ¿Estás seguro de que deseas cerrar sin guardar?"
+        onConfirm={() => {
+          setShowUnsavedChangesConfirm(false);
+          onClose();
+        }}
+        onCancel={() => setShowUnsavedChangesConfirm(false)}
+        confirmText="Cerrar Sin Guardar"
+        cancelText="Continuar Editando"
+      />
     </div>
   );
 }

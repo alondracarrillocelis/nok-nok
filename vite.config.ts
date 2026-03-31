@@ -7,4 +7,21 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor': ['react', 'react-dom', 'react-router-dom'],
+          'ui-modals': [
+            './src/components/AddStudentModal.tsx',
+            './src/components/EditStudentModal.tsx',
+            './src/components/AddUserModal.tsx',
+            './src/components/EditSubjectModal.tsx',
+            './src/components/ConfirmationModal.tsx',
+          ],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 600,
+  },
 });

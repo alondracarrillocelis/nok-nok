@@ -1,8 +1,14 @@
 import { useState, useEffect } from 'react';
-import { X, AlertCircle } from 'lucide-react';
-import { students, subjects, users, ailments, studentAilments, studentSubjects, enrollments } from '../lib/api';
+import { X, FileText } from 'lucide-react';
+import { students as studentsApi, subjects as subjectsApi, users as usersApi, ailments as ailmentsApi, studentAilments, studentSubjects, enrollments, documents } from '../lib/api';
 import { showToast } from './Toast';
 import ConfirmationModal from './ConfirmationModal';
+import DragDropUpload from './DragDropUpload';
+import AilmentsStepSection from './AilmentsStepSection';
+import FieldError from './FieldError';
+import StudentWizardActions from './StudentWizardActions';
+import StudentWizardSteps from './StudentWizardSteps';
+import { formatPhoneMask, isValidEmail, isValidPhone } from '../lib/validators';
 
 interface Subject {
   id: string;
@@ -15,7 +21,9 @@ interface Ailment {
   name: string;
   description: string;
   medication: string;
+  medicalDescription?: string;
   severity: string;
+  notes?: string;
 }
 
 interface User {
@@ -25,6 +33,21 @@ interface User {
   role: string;
 }
 
+interface ApiUser {
+  id: string;
+  firstName?: string;
+  paternalSurname?: string;
+  maternalSurname?: string | null;
+  email: string;
+  role: string;
+}
+
+interface ApiStudentSubject {
+  id: string;
+  subjectId?: string;
+  subject?: { id: string };
+}
+
 interface EditStudentModalProps {
   studentId: string;
   onClose: () => void;
@@ -32,13 +55,15 @@ interface EditStudentModalProps {
 }
 
 type Step = 'personal' | 'academic' | 'inscription' | 'tutor' | 'ailments' | 'subjects';
+type GenderValue = '' | 'femenino' | 'masculino' | 'otro' | 'prefiero_no_decirlo';
 
 export default function EditStudentModal({ studentId, onClose, onSuccess }: EditStudentModalProps) {
   const [currentStep, setCurrentStep] = useState<Step>('personal');
-  const [formData, setFormData] = useState({
+  const initialFormData = {
     firstName: '',
     paternalSurname: '',
     maternalSurname: '',
+    gender: '' as GenderValue,
     birthDate: '',
     enrollmentNumber: '',
     enrollmentDate: '',
@@ -51,20 +76,26 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
     tutorPhone: '',
     tutorEmail: '',
     tutorId: '',
-    // Inscription fields
     folio: '',
     inscriptionDate: '',
     inscriptionType: 'semanal',
     inscriptionProgram: 'Programa I',
     representativeId: '',
     enrollmentId: '',
-  });
+  };
+  const [formData, setFormData] = useState(initialFormData);
+  const [savedFormData, setSavedFormData] = useState(initialFormData);
+  const [showUnsavedChangesConfirm, setShowUnsavedChangesConfirm] = useState(false);
   const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [savedSelectedSubjects, setSavedSelectedSubjects] = useState<string[]>([]);
+  const [availableSubjects, setAvailableSubjects] = useState<Subject[]>([]);
   const [selectedAilments, setSelectedAilments] = useState<string[]>([]);
-  const [ailments, setAilments] = useState<Ailment[]>([]);
+  const [savedSelectedAilments, setSavedSelectedAilments] = useState<string[]>([]);
+  const [availableAilments, setAvailableAilments] = useState<Ailment[]>([]);
   const [ailmentDetails, setAilmentDetails] = useState<Record<string, { diagnosisDate: string; notes: string }>>({});
-  const [users, setUsers] = useState<User[]>([]);
+  const [savedAilmentDetails, setSavedAilmentDetails] = useState<Record<string, { diagnosisDate: string; notes: string }>>({});
+  const [availableUsers, setAvailableUsers] = useState<User[]>([]);
+  const [documentFiles, setDocumentFiles] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -76,65 +107,109 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
     name: '',
     description: '',
     medication: '',
-    severity: 'moderado',
+    medicalDescription: '',
+    severity: 'moderado' as 'leve' | 'moderado' | 'severo',
+    notes: '',
   });
   const [creatingAilment, setCreatingAilment] = useState(false);
 
+  const hasUnsavedChanges = () => {
+    return JSON.stringify(formData) !== JSON.stringify(savedFormData) || 
+           JSON.stringify(selectedSubjects) !== JSON.stringify(savedSelectedSubjects) ||
+           JSON.stringify(selectedAilments) !== JSON.stringify(savedSelectedAilments) ||
+           JSON.stringify(ailmentDetails) !== JSON.stringify(savedAilmentDetails) ||
+           documentFiles.length > 0;
+  };
+
+  const handleClose = () => {
+    if (hasUnsavedChanges()) {
+      setShowUnsavedChangesConfirm(true);
+    } else {
+      onClose();
+    }
+  };
+
   useEffect(() => {
     fetchStudentData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studentId]);
 
   const fetchStudentData = async () => {
     try {
       setIsLoading(true);
       // Fetch student
-      const student = await students.getById(studentId);
+      const student = await studentsApi.getById(studentId);
 
       if (student) {
-        // Parse name back to components (this is a simplification)
-        const nameParts = student.name.split(' ');
-        setFormData({
-          firstName: nameParts[0] || '',
-          paternalSurname: nameParts[1] || '',
-          maternalSurname: nameParts.slice(2).join(' ') || '',
-          birthDate: '', // API doesn't provide birth date
-          enrollmentNumber: '', // API doesn't provide enrollment number
-          enrollmentDate: '',
-          currentLevel: 'Principiante',
-          currentGrade: 'Principiante',
-          program: 'Programa I',
-          shift: 'Matutino',
-          representative: 'Representante I',
-          tutorName: student.emergency_contact || '',
-          tutorPhone: student.emergency_phone || '',
+        const formValues = {
+          firstName: student.firstName || '',
+          paternalSurname: student.paternalSurname || '',
+          maternalSurname: student.maternalSurname || '',
+          gender: '' as GenderValue,
+          birthDate: student.birthDate || '',
+          enrollmentNumber: student.enrollmentNumber || '',
+          enrollmentDate: student.enrollmentDate || '',
+          currentLevel: student.currentLevel || 'Principiante',
+          currentGrade: student.currentGrade || 'Principiante',
+          program: student.program || 'Programa I',
+          shift: student.shift || 'Matutino',
+          representative: student.representative || 'Representante I',
+          tutorName: student.tutors && student.tutors.length > 0 ? student.tutors[0].name : '',
+          tutorPhone: student.tutors && student.tutors.length > 0 ? student.tutors[0].phone || '' : '',
           tutorEmail: '',
           tutorId: '',
-        });
+          folio: '',
+          inscriptionDate: student.enrollmentDate || '',
+          inscriptionType: 'semanal',
+          inscriptionProgram: student.program || 'Programa I',
+          representativeId: '',
+          enrollmentId: '',
+        };
+        setFormData(formValues);
+        setSavedFormData(formValues);
       }
 
       // Fetch subjects
-      const subjectsResponse = await subjects.list();
-      setSubjects(subjectsResponse.data.filter(subject => subject.status === 'activo'));
+      const subjectsResponse = await subjectsApi.list();
+      const subjectsList = Array.isArray(subjectsResponse)
+        ? subjectsResponse
+        : Array.isArray((subjectsResponse as { data?: Subject[] }).data)
+          ? (subjectsResponse as { data: Subject[] }).data
+          : [];
+      setAvailableSubjects(subjectsList as Subject[]);
 
-      // Fetch student subjects
-      const studentSubjectsResponse = await studentSubjects.list(studentId);
-      setSelectedSubjects(studentSubjectsResponse.data.map(s => s.subject_id));
+      setSelectedSubjects(
+        (student.subjects || [])
+          .map((item) => item.subject.id)
+          .filter((id): id is string => Boolean(id))
+      );
+
+      const subjectIds = (student.subjects || [])
+        .map((item) => item.subject.id)
+        .filter((id): id is string => Boolean(id));
+      setSavedSelectedSubjects(subjectIds);
 
       // Fetch all ailments
-      const ailmentsResponse = await ailments.list();
-      setAilments(ailmentsResponse.data);
+      const ailmentsResponse = await ailmentsApi.list();
+      const ailmentsList = Array.isArray(ailmentsResponse)
+        ? ailmentsResponse
+        : Array.isArray((ailmentsResponse as { data?: Ailment[] }).data)
+          ? (ailmentsResponse as { data: Ailment[] }).data
+          : [];
+      setAvailableAilments(ailmentsList as Ailment[]);
 
-      // Fetch student ailments
-      const studentAilmentsResponse = await studentAilments.list(studentId);
-      setSelectedAilments(studentAilmentsResponse.data.map(a => a.ailment_id));
+      setSelectedAilments((student.ailments || []).map((a) => a.ailmentId));
       const details: Record<string, { diagnosisDate: string; notes: string }> = {};
-      studentAilmentsResponse.data.forEach(a => {
-        details[a.ailment_id] = {
-          diagnosisDate: '', // API doesn't provide diagnosis date
+      (student.ailments || []).forEach((a) => {
+        details[a.ailmentId] = {
+          diagnosisDate: a.diagnosisDate || '',
           notes: a.notes || '',
         };
       });
       setAilmentDetails(details);
+
+      setSavedSelectedAilments((student.ailments || []).map((a) => a.ailmentId));
+      setSavedAilmentDetails(details);
 
       // Fetch enrollment/inscription
       const enrollmentsResponse = await enrollments.list(studentId);
@@ -142,17 +217,17 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
         const enrollment = enrollmentsResponse.data[0];
         setFormData(prev => ({
           ...prev,
-          inscriptionDate: enrollment.enrollment_date,
-          inscriptionProgram: enrollment.program_id === 'program-1' ? 'Programa I' : 'Programa II',
+          inscriptionDate: enrollment.enrollmentDate,
+          inscriptionProgram: enrollment.program || 'Programa I',
           enrollmentId: enrollment.id,
         }));
       }
 
       // Fetch all users/representatives
-      const usersResponse = await users.list();
-      setUsers(usersResponse.data.map((u: any) => ({
+      const usersResponse = await usersApi.list();
+      setAvailableUsers(usersResponse.map((u: ApiUser) => ({
         id: u.id,
-        name: u.name,
+        name: [u.firstName, u.paternalSurname, u.maternalSurname].filter(Boolean).join(' '),
         email: u.email,
         role: u.role,
       })));
@@ -207,6 +282,18 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
       return validatePersonalStep();
     } else if (currentStep === 'academic') {
       return validateAcademicStep();
+    } else if (currentStep === 'tutor') {
+      const newErrors: Record<string, string> = {};
+
+      if (formData.tutorPhone.trim() && !isValidPhone(formData.tutorPhone)) {
+        newErrors.tutorPhone = 'El teléfono debe tener entre 10 y 15 dígitos';
+      }
+      if (formData.tutorEmail.trim() && !isValidEmail(formData.tutorEmail)) {
+        newErrors.tutorEmail = 'Ingresa un correo electrónico válido';
+      }
+
+      setErrors(newErrors);
+      return Object.keys(newErrors).length === 0;
     }
     return true;
   };
@@ -231,14 +318,6 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
     );
   };
 
-  const toggleAilment = (ailmentId: string) => {
-    setSelectedAilments(prev =>
-      prev.includes(ailmentId)
-        ? prev.filter(id => id !== ailmentId)
-        : [...prev, ailmentId]
-    );
-  };
-
   const handleCreateAilment = async () => {
     if (!newAilmentForm.name.trim()) {
       showToast('El nombre del padecimiento es obligatorio', 'error');
@@ -246,17 +325,19 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
     }
     setCreatingAilment(true);
     try {
-      const newAilment = await ailments.create({
-        name: newAilmentForm.name,
-        description: newAilmentForm.description,
-        medication: newAilmentForm.medication,
+      const newAilment = await ailmentsApi.create({
+        name: newAilmentForm.name.trim(),
+        description: newAilmentForm.description.trim(),
+        medication: newAilmentForm.medication.trim(),
+        medicalDescription: newAilmentForm.medicalDescription.trim(),
         severity: newAilmentForm.severity,
+        notes: newAilmentForm.notes.trim(),
       });
 
       if (newAilment) {
-        setAilments(prev => [...prev, newAilment]);
+        setAvailableAilments(prev => [...prev, newAilment as Ailment]);
         setSelectedAilments(prev => [...prev, newAilment.id]);
-        setNewAilmentForm({ name: '', description: '', medication: '', severity: 'moderado' });
+        setNewAilmentForm({ name: '', description: '', medication: '', medicalDescription: '', severity: 'moderado', notes: '' });
         showToast('Padecimiento creado y asignado al alumno', 'success');
       }
     } catch (error) {
@@ -283,20 +364,27 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
     try {
       // Update student
       const studentData = {
-        name: `${formData.firstName} ${formData.paternalSurname} ${formData.maternalSurname || ''}`.trim(),
-        email: '', // No email in form
-        phone: '', // No phone in form
-        gender: 'O' as const, // Default gender
-        emergency_contact: formData.tutorName || null,
-        emergency_phone: formData.tutorPhone || null,
+        firstName: formData.firstName.trim(),
+        paternalSurname: formData.paternalSurname.trim(),
+        maternalSurname: formData.maternalSurname.trim() || null,
+        birthDate: formData.birthDate || undefined,
+        curp: undefined,
+        enrollmentNumber: formData.enrollmentNumber.trim(),
+        enrollmentDate: formData.enrollmentDate || formData.inscriptionDate || undefined,
+        currentLevel: formData.currentLevel,
+        currentGrade: formData.currentGrade,
+        program: formData.program,
+        shift: formData.shift,
+        representative: formData.representative,
+        status: 'activo' as const,
       };
 
-      await students.update(studentId, studentData);
+      await studentsApi.update(studentId, studentData);
 
       // Update subjects - delete existing and create new
       // First get current student subjects to delete them
       const currentStudentSubjects = await studentSubjects.list(studentId);
-      for (const ss of currentStudentSubjects.data) {
+      for (const ss of currentStudentSubjects as ApiStudentSubject[]) {
         await studentSubjects.delete(ss.id);
       }
 
@@ -304,8 +392,8 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
       if (selectedSubjects.length > 0) {
         for (const subjectId of selectedSubjects) {
           await studentSubjects.create({
-            student_id: studentId,
-            subject_id: subjectId,
+            studentId,
+            subjectId,
           });
         }
       }
@@ -321,9 +409,9 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
       if (selectedAilments.length > 0) {
         for (const ailmentId of selectedAilments) {
           await studentAilments.create({
-            student_id: studentId,
-            ailment_id: ailmentId,
-            notes: ailmentDetails[ailmentId]?.notes || null,
+            studentId,
+            ailmentId,
+            notes: ailmentDetails[ailmentId]?.notes || undefined,
           });
         }
       }
@@ -332,19 +420,31 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
       if (formData.enrollmentId) {
         // Update existing enrollment
         await enrollments.update(formData.enrollmentId, {
-          student_id: studentId,
-          program_id: formData.inscriptionProgram === 'Programa I' ? 'program-1' : 'program-2',
-          status: 'active',
-          enrollment_date: formData.inscriptionDate,
+          studentId,
+          program: formData.inscriptionProgram,
+          status: 'activo',
+          enrollmentDate: formData.inscriptionDate,
         });
       } else {
         // Create new enrollment
         await enrollments.create({
-          student_id: studentId,
-          program_id: formData.inscriptionProgram === 'Programa I' ? 'program-1' : 'program-2',
-          status: 'active',
-          enrollment_date: formData.inscriptionDate,
+          studentId,
+          program: formData.inscriptionProgram,
+          status: 'activo',
+          enrollmentDate: formData.inscriptionDate,
         });
+      }
+
+      // Guardado secuencial de metadatos de documentos (1 por 1)
+      if (documentFiles.length > 0) {
+        for (const file of documentFiles) {
+          await documents.upload({
+            studentId,
+            documentType: 'pdf',
+            fileName: file.name,
+            fileUrl: URL.createObjectURL(file),
+          });
+        }
       }
 
       showToast('Alumno/a actualizado exitosamente', 'success');
@@ -358,15 +458,6 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
       setShowConfirm(false);
       setConfirmLoading(false);
     }
-  };
-
-  const renderErrorField = (fieldName: string) => {
-    return errors[fieldName] ? (
-      <div className="mt-1 flex items-center space-x-1 text-red-500">
-        <AlertCircle size={16} />
-        <span className="text-xs font-medium">{errors[fieldName]}</span>
-      </div>
-    ) : null;
   };
 
   if (isLoading) {
@@ -394,21 +485,12 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden flex">
-        <div className="w-48 bg-gray-50 p-6 space-y-2">
-          {steps.map((step) => (
-            <button
-              key={step.id}
-              onClick={() => setCurrentStep(step.id as Step)}
-              className={`w-full text-left px-4 py-3 rounded-lg font-semibold transition-colors ${
-                currentStep === step.id
-                  ? 'bg-blue-500 text-white'
-                  : 'text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              {step.label}
-            </button>
-          ))}
-        </div>
+        <StudentWizardSteps
+          steps={steps}
+          currentStep={currentStep}
+          accent="blue"
+          onStepChange={(stepId) => setCurrentStep(stepId as Step)}
+        />
 
         <div className="flex-1 p-8 overflow-y-auto">
           <div className="flex items-start justify-between mb-6">
@@ -417,7 +499,7 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
               <p className="text-sm text-gray-500">Actualiza los datos del estudiante</p>
             </div>
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="p-2 hover:bg-gray-100 rounded-full transition-colors"
             >
               <X size={24} className="text-gray-600" />
@@ -442,7 +524,7 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                         : 'border-gray-300 focus:ring-blue-500'
                     }`}
                   />
-                  {renderErrorField('firstName')}
+                  <FieldError message={errors.firstName} />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -459,7 +541,7 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                         : 'border-gray-300 focus:ring-blue-500'
                     }`}
                   />
-                  {renderErrorField('paternalSurname')}
+                  <FieldError message={errors.paternalSurname} />
                 </div>
               </div>
 
@@ -476,6 +558,25 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                     className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Género
+                  </label>
+                  <select
+                    value={formData.gender}
+                    onChange={(e) => updateField('gender', e.target.value)}
+                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Seleccionar</option>
+                    <option value="femenino">Femenino</option>
+                    <option value="masculino">Masculino</option>
+                    <option value="otro">Otro</option>
+                    <option value="prefiero_no_decirlo">Prefiero no decirlo</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Fecha de Nacimiento
@@ -505,18 +606,7 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                         : 'border-gray-300 focus:ring-blue-500'
                     }`}
                   />
-                  {renderErrorField('enrollmentNumber')}
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Fecha de Inscripción
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.enrollmentDate}
-                    onChange={(e) => updateField('enrollmentDate', e.target.value)}
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                  <FieldError message={errors.enrollmentNumber} />
                 </div>
               </div>
             </div>
@@ -542,7 +632,7 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                     <option value="Intermedio">Intermedio</option>
                     <option value="Avanzado">Avanzado</option>
                   </select>
-                  {renderErrorField('currentLevel')}
+                  <FieldError message={errors.currentLevel} />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -588,7 +678,7 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                     <option value="Matutino">Matutino</option>
                     <option value="Vespertino">Vespertino</option>
                   </select>
-                  {renderErrorField('shift')}
+                  <FieldError message={errors.shift} />
                 </div>
               </div>
 
@@ -677,7 +767,7 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Seleccionar representante...</option>
-                  {users.map((user) => (
+                  {availableUsers.map((user) => (
                     <option key={user.id} value={user.id}>
                       {user.name} {user.email && `(${user.email})`}
                     </option>
@@ -686,11 +776,40 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
               </div>
 
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-sm font-semibold text-blue-800 mb-2">📋 Información de Inscripción</p>
+                <p className="text-sm font-semibold text-blue-800 mb-2">Información de Inscripción</p>
                 <p className="text-xs text-blue-700">
                   Actualiza los datos de inscripción del alumno/a. El folio se autogenerará si lo dejas en blanco.
                 </p>
               </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  Documentos del Alumno/a (Opcional)
+                </label>
+                <DragDropUpload
+                  onFilesSelected={setDocumentFiles}
+                  accept=".pdf"
+                  maxFileSizeMB={10}
+                  maxFiles={20}
+                  label="Arrastra PDFs aquí o selecciona archivos"
+                />
+              </div>
+
+              {documentFiles.length > 0 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <p className="text-sm font-medium text-blue-700 mb-2">
+                    {documentFiles.length} archivo(s) listo(s) para guardar
+                  </p>
+                  <ul className="space-y-1">
+                    {documentFiles.map((file, index) => (
+                      <li key={index} className="text-xs text-blue-600 flex items-center space-x-1">
+                        <FileText size={14} />
+                        <span>{file.name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 
@@ -716,10 +835,15 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                 <input
                   type="tel"
                   value={formData.tutorPhone}
-                  onChange={(e) => updateField('tutorPhone', e.target.value)}
+                  onChange={(e) => updateField('tutorPhone', formatPhoneMask(e.target.value))}
                   placeholder="555-123-4567"
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 ${
+                    errors.tutorPhone
+                      ? 'border-red-400 focus:ring-red-500'
+                      : 'border-gray-300 focus:ring-blue-500'
+                  }`}
                 />
+                <FieldError message={errors.tutorPhone} />
               </div>
 
               <div>
@@ -731,13 +855,18 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                   value={formData.tutorEmail}
                   onChange={(e) => updateField('tutorEmail', e.target.value)}
                   placeholder="tutor@email.com"
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 ${
+                    errors.tutorEmail
+                      ? 'border-red-400 focus:ring-red-500'
+                      : 'border-gray-300 focus:ring-blue-500'
+                  }`}
                 />
+                <FieldError message={errors.tutorEmail} />
               </div>
 
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-sm text-blue-700">
-                  📝 Los datos del tutor son opcionales. Continúa al siguiente paso para agregar padecimientos.
+                  Los datos del tutor son opcionales. Continúa al siguiente paso para agregar padecimientos.
                 </p>
               </div>
             </div>
@@ -745,186 +874,52 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
 
           {currentStep === 'ailments' && (
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-3">
-                  Padecimientos del alumno (Condiciones de Salud)
-                </label>
-                <p className="text-sm text-gray-600 mb-4">
-                  Los padecimientos que agregues quedarán asignados a este alumno.
-                </p>
-
-                {/* Formulario para agregar padecimiento - siempre visible */}
-                <div className="space-y-4 mb-6">
-                  <p className="text-sm font-semibold text-gray-700">Agregar padecimiento para este alumno</p>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Nombre del padecimiento *
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Ej: Asma, Alergia..."
-                        value={newAilmentForm.name}
-                        onChange={(e) => setNewAilmentForm(prev => ({ ...prev, name: e.target.value }))}
-                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Severidad
-                      </label>
-                      <select
-                        value={newAilmentForm.severity}
-                        onChange={(e) => setNewAilmentForm(prev => ({ ...prev, severity: e.target.value }))}
-                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        <option value="leve">Leve</option>
-                        <option value="moderado">Moderado</option>
-                        <option value="severo">Severo</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Descripción (opcional)
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Descripción general"
-                        value={newAilmentForm.description}
-                        onChange={(e) => setNewAilmentForm(prev => ({ ...prev, description: e.target.value }))}
-                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">
-                        Medicamento (opcional)
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Medicamento recomendado"
-                        value={newAilmentForm.medication}
-                        onChange={(e) => setNewAilmentForm(prev => ({ ...prev, medication: e.target.value }))}
-                        className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={handleCreateAilment}
-                      disabled={creatingAilment}
-                      className="px-6 py-2 bg-blue-500 text-white rounded-full font-semibold hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {creatingAilment ? 'Creando...' : 'Crear y asignar al alumno'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setNewAilmentForm({ name: '', description: '', medication: '', severity: 'moderado' })}
-                      className="px-6 py-2 border border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-100 transition-colors"
-                    >
-                      Limpiar
-                    </button>
-                  </div>
-                </div>
-
-                {/* Lista de padecimientos de este alumno */}
-                <div className="space-y-3">
-                  <p className="text-sm font-semibold text-gray-700">Padecimientos de este alumno</p>
-                  {ailments.filter(a => selectedAilments.includes(a.id)).length === 0 ? (
-                    <p className="text-sm text-gray-500">Los padecimientos que agregues aparecerán aquí.</p>
-                  ) : (
-                    <div className="space-y-3 max-h-64 overflow-y-auto border border-gray-200 rounded-lg p-4">
-                      {ailments.filter(a => selectedAilments.includes(a.id)).map((ailment) => (
-                        <div
-                          key={ailment.id}
-                          className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors"
-                        >
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="flex-1">
-                              <p className="font-semibold text-gray-800">{ailment.name}</p>
-                              {ailment.description && (
-                                <p className="text-sm text-gray-600 mb-1">{ailment.description}</p>
-                              )}
-                              {ailment.medication && (
-                                <p className="text-xs text-blue-600 mb-2">💊 Medicamento: {ailment.medication}</p>
-                              )}
-                              {ailment.severity && (
-                                <span className={`inline-block text-xs font-semibold px-2 py-1 rounded ${
-                                  ailment.severity === 'severo' ? 'bg-red-100 text-red-700' :
-                                  ailment.severity === 'moderado' ? 'bg-yellow-100 text-yellow-700' :
-                                  'bg-green-100 text-green-700'
-                                }`}>
-                                  Severidad: {ailment.severity}
-                                </span>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedAilments(prev => prev.filter(id => id !== ailment.id))}
-                              className="p-1.5 text-red-600 hover:bg-red-50 rounded-full transition-colors"
-                              title="Quitar padecimiento"
-                            >
-                              <X size={18} />
-                            </button>
-                          </div>
-                          <div className="space-y-3 pt-3 border-t border-gray-200">
-                            <div>
-                              <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-                                Fecha de Diagnóstico
-                              </label>
-                              <input
-                                type="date"
-                                value={ailmentDetails[ailment.id]?.diagnosisDate || ''}
-                                onChange={(e) => setAilmentDetails(prev => ({
-                                  ...prev,
-                                  [ailment.id]: {
-                                    ...prev[ailment.id],
-                                    diagnosisDate: e.target.value,
-                                  }
-                                }))}
-                                className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-                                Notas del Padecimiento
-                              </label>
-                              <textarea
-                                value={ailmentDetails[ailment.id]?.notes || ''}
-                                onChange={(e) => setAilmentDetails(prev => ({
-                                  ...prev,
-                                  [ailment.id]: {
-                                    ...prev[ailment.id],
-                                    notes: e.target.value,
-                                  }
-                                }))}
-                                placeholder="Ej: Tomar medicamento cada 8 horas..."
-                                className="w-full px-4 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                                rows={2}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-              </div>
+              <AilmentsStepSection
+                theme="blue"
+                headerHint="Mantén los medicamentos y notas separados para una lectura más clara."
+                medicationHint="Usa un medicamento principal por registro para que el historial sea claro."
+                selectedAilments={selectedAilments}
+                availableAilments={availableAilments}
+                ailmentDetails={ailmentDetails}
+                newAilmentForm={newAilmentForm}
+                creatingAilment={creatingAilment}
+                onCreateAilment={handleCreateAilment}
+                onResetNewAilmentForm={() =>
+                  setNewAilmentForm({
+                    name: '',
+                    description: '',
+                    medication: '',
+                    medicalDescription: '',
+                    severity: 'moderado',
+                    notes: '',
+                  })
+                }
+                onChangeNewAilmentForm={setNewAilmentForm}
+                onRemoveAilment={(ailmentId) => {
+                  setSelectedAilments((prev) => prev.filter((id) => id !== ailmentId));
+                }}
+                onUpdateAilmentDetails={(ailmentId, diagnosisDate, notes) => {
+                  setAilmentDetails((prev) => ({
+                    ...prev,
+                    [ailmentId]: {
+                      diagnosisDate,
+                      notes,
+                    },
+                  }));
+                }}
+              />
 
               {selectedAilments.length > 0 && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <p className="text-sm text-blue-700">
-                    ✓ {selectedAilments.length} padecimiento(s) asignado(s) a este alumno
+                    {selectedAilments.length} padecimiento(s) asignado(s) a este alumno
                   </p>
                 </div>
               )}
 
               <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                 <p className="text-sm text-green-700">
-                  ℹ️ Completa los detalles de cada padecimiento seleccionado. Continúa al siguiente paso para asignar materias.
+                  Usa esta lista como referencia rápida y completa solo los datos necesarios de cada padecimiento.
                 </p>
               </div>
             </div>
@@ -936,7 +931,7 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                 <label className="block text-sm font-semibold text-gray-700 mb-3">
                   Asignar Materias
                 </label>
-                {subjects.length === 0 ? (
+                {availableSubjects.length === 0 ? (
                   <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center">
                     <p className="text-sm text-yellow-800">
                       No hay materias disponibles. Por favor, crea materias primero.
@@ -944,7 +939,7 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-96 overflow-y-auto border border-gray-200 rounded-lg p-4">
-                    {subjects.map((subject) => (
+                    {availableSubjects.map((subject) => (
                       <label
                         key={subject.id}
                         className="flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
@@ -968,40 +963,24 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
               {selectedSubjects.length > 0 && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <p className="text-sm text-blue-700">
-                    ✓ {selectedSubjects.length} materia(s) seleccionada(s)
+                    {selectedSubjects.length} materia(s) seleccionada(s)
                   </p>
                 </div>
               )}
             </div>
           )}
 
-          <div className="flex items-center justify-end space-x-4 mt-8 pt-6 border-t border-gray-200">
-            <button
-              onClick={onClose}
-              disabled={isSaving || showConfirm}
-              className="px-8 py-2 border border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Cancelar
-            </button>
-            {currentStep !== 'subjects' && (
-              <button
-                onClick={handleNextStep}
-                disabled={isSaving}
-                className="px-8 py-2 bg-blue-500 text-white rounded-full font-semibold hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Siguiente
-              </button>
-            )}
-            {currentStep === 'subjects' && (
-              <button
-                onClick={handleSubmit}
-                disabled={isSaving || showConfirm}
-                className="px-8 py-2 bg-blue-500 text-white rounded-full font-semibold hover:bg-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isSaving ? 'Guardando...' : 'Guardar Cambios'}
-              </button>
-            )}
-          </div>
+          <StudentWizardActions
+            accent="blue"
+            onCancel={handleClose}
+            onNext={handleNextStep}
+            onSubmit={handleSubmit}
+            showNext={currentStep !== 'subjects'}
+            cancelDisabled={isSaving || showConfirm}
+            nextDisabled={isSaving}
+            submitDisabled={isSaving || showConfirm}
+            submitLabel={isSaving ? 'Guardando...' : 'Guardar Cambios'}
+          />
         <ConfirmationModal
       isOpen={showConfirm}
       type="edit"
@@ -1010,6 +989,19 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
       onConfirm={performSubmit}
       onCancel={() => setShowConfirm(false)}
       isLoading={confirmLoading}
+    />
+    <ConfirmationModal
+      isOpen={showUnsavedChangesConfirm}
+      type="info"
+      title="Cambios Sin Guardar"
+      message="Tienes cambios sin guardar. ¿Estás seguro de que deseas cerrar sin guardar?"
+      onConfirm={() => {
+        setShowUnsavedChangesConfirm(false);
+        onClose();
+      }}
+      onCancel={() => setShowUnsavedChangesConfirm(false)}
+      confirmText="Cerrar Sin Guardar"
+      cancelText="Continuar Editando"
     />
     </div>
       </div>

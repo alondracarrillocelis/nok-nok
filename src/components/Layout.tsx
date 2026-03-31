@@ -1,7 +1,9 @@
-import { ReactNode } from 'react';
+import { ReactNode, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, Users, BookOpen, Settings, LogOut, Book } from 'lucide-react';
+import { Home, Users, Bot, Settings, LogOut, Book } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import BrandLogo from './BrandLogo';
+import ConfirmationModal from './ConfirmationModal';
 
 interface LayoutProps {
   children: ReactNode;
@@ -11,6 +13,7 @@ export default function Layout({ children }: LayoutProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { signOut } = useAuth();
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const handleLogout = async () => {
     await signOut();
@@ -30,8 +33,7 @@ export default function Layout({ children }: LayoutProps) {
           <div className="max-w-7xl mx-auto px-6 py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center">
-                <span className="text-2xl font-black text-green-500">NOKNOK</span>
-                <span className="text-xl font-semibold text-gray-600 ml-1">ACADEMY</span>
+                <BrandLogo size="md" />
               </div>
 
               <div className="flex items-center space-x-4">
@@ -42,7 +44,7 @@ export default function Layout({ children }: LayoutProps) {
                       ? 'bg-green-500 text-white'
                       : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                   }`}
-                  title="Dashboard"
+                  title="Inicio"
                 >
                   <Home size={20} />
                 </button>
@@ -53,9 +55,9 @@ export default function Layout({ children }: LayoutProps) {
                       ? 'bg-green-500 text-white'
                       : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                   }`}
-                  title="Estudiantes"
+                  title="Alumnos"
                 >
-                  <BookOpen size={20} />
+                  <Bot size={20} />
                 </button>
                 <button
                   onClick={() => navigate('/subjects')}
@@ -91,7 +93,7 @@ export default function Layout({ children }: LayoutProps) {
                   <Settings size={20} />
                 </button>
                 <button
-                  onClick={handleLogout}
+                  onClick={() => setShowLogoutConfirm(true)}
                   className="p-3 rounded-full bg-gray-200 text-gray-600 hover:bg-gray-300 transition-colors"
                   title="Cerrar Sesión"
                 >
@@ -106,6 +108,19 @@ export default function Layout({ children }: LayoutProps) {
           {children}
         </main>
       </div>
+
+      <ConfirmationModal
+        isOpen={showLogoutConfirm}
+        type="info"
+        title="Cerrar sesión"
+        message="¿Deseas salir de tu sesión actual?"
+        confirmText="Cerrar sesión"
+        onConfirm={() => {
+          setShowLogoutConfirm(false);
+          void handleLogout();
+        }}
+        onCancel={() => setShowLogoutConfirm(false)}
+      />
     </div>
   );
 }

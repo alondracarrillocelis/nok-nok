@@ -1,26 +1,26 @@
 import { useEffect, useState } from 'react';
-import { users, API_BASE_URL } from '../lib/api';
+import { RefreshCw } from 'lucide-react';
+import { users, API_BASE_URL, sessionSettings } from '../lib/api';
 import { ENDPOINTS } from '../constants/endpoints';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import { showToast } from '../components/Toast';
+import { formatPhoneMask, isValidPhone } from '../lib/validators';
 
 interface UserProfile {
   id: string;
-  user_id: string;
-  first_name: string;
-  paternal_surname: string;
-  maternal_surname: string | null;
+  firstName: string;
+  paternalSurname: string;
+  maternalSurname: string | null;
   email: string;
   phone: string | null;
   role: 'tutor' | 'admin';
   status: 'activo' | 'inactivo';
-  created_at: string;
-  updated_at: string;
+  createdAt: string;
 }
 
 export default function Profile() {
-  const { user } = useAuth();
+  const { user, keepSession, setKeepSession } = useAuth();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [form, setForm] = useState({
     firstName: '',
@@ -42,16 +42,17 @@ export default function Profile() {
 
     try {
       const data = await users.getCurrentUser();
-      setProfile(data);
+      setProfile(data as UserProfile);
       setForm({
-        firstName: data.first_name || '',
-        paternalSurname: data.paternal_surname || '',
-        maternalSurname: data.maternal_surname || '',
+        firstName: data.firstName || '',
+        paternalSurname: data.paternalSurname || '',
+        maternalSurname: data.maternalSurname || '',
         phone: data.phone || '',
       });
     } catch (error) {
       console.error('Error fetching profile:', error);
-      showToast('No se pudo cargar tu perfil', 'error');
+      const message = error instanceof Error ? error.message : 'No se pudo cargar tu perfil';
+      showToast(message, 'error');
     } finally {
       setLoading(false);
     }
@@ -60,21 +61,27 @@ export default function Profile() {
   const handleSave = async () => {
     if (!profile) return;
 
+    if (form.phone.trim() && !isValidPhone(form.phone)) {
+      showToast('Ingresa un teléfono válido (10 a 15 dígitos)', 'error');
+      return;
+    }
+
     setSaving(true);
 
     try {
       await users.update(profile.id, {
-        first_name: form.firstName,
-        paternal_surname: form.paternalSurname,
-        maternal_surname: form.maternalSurname || null,
-        phone: form.phone || null,
+        firstName: form.firstName,
+        paternalSurname: form.paternalSurname,
+        maternalSurname: form.maternalSurname || null,
+        phone: form.phone || undefined,
       });
 
       showToast('Perfil actualizado', 'success');
       fetchProfile();
     } catch (error) {
       console.error('Error updating profile:', error);
-      showToast('No se pudo actualizar el perfil', 'error');
+      const message = error instanceof Error ? error.message : 'No se pudo actualizar el perfil';
+      showToast(message, 'error');
     } finally {
       setSaving(false);
     }
@@ -99,7 +106,7 @@ export default function Profile() {
       };
 
       // Since users.create() requires password, we'll use a direct API call without password
-      const token = localStorage.getItem('auth_token');
+      const token = sessionSettings.getValue('auth_token');
       const response = await fetch(`${API_BASE_URL}${ENDPOINTS.USERS.CREATE}`, {
         method: 'POST',
         headers: {
@@ -117,7 +124,8 @@ export default function Profile() {
       fetchProfile();
     } catch (error) {
       console.error('Error creating profile:', error);
-      showToast('No se pudo crear el perfil', 'error');
+      const message = error instanceof Error ? error.message : 'No se pudo crear el perfil';
+      showToast(message, 'error');
     } finally {
       setSaving(false);
     }
@@ -131,6 +139,14 @@ export default function Profile() {
             <h1 className="text-2xl font-bold text-gray-900">Configuración</h1>
             <p className="text-sm text-gray-500">Revisa y actualiza los datos de tu perfil.</p>
           </div>
+          <button
+            type="button"
+            onClick={() => fetchProfile()}
+            className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2.5 rounded-full font-semibold hover:bg-gray-50 transition-colors"
+          >
+            <RefreshCw size={18} />
+            Recargar
+          </button>
         </div>
 
         <div className="bg-white rounded-3xl shadow-lg p-8">
@@ -184,8 +200,9 @@ export default function Profile() {
                   <input
                     type="tel"
                     value={form.phone}
-                    onChange={(e) => setForm((prev) => ({ ...prev, phone: e.target.value }))}
+                    onChange={(e) => setForm((prev) => ({ ...prev, phone: formatPhoneMask(e.target.value) }))}
                     className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    placeholder="555-123-4567"
                   />
                 </div>
               </div>
@@ -208,6 +225,41 @@ export default function Profile() {
                     readOnly
                     className="w-full px-4 py-2 rounded-lg border border-gray-200 bg-gray-50 text-gray-600"
                   />
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-cyan-100 bg-cyan-50/50 p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-cyan-900">Mantener sesión iniciada</p>
+                    <p className="text-xs text-cyan-800/70">
+                      Si está activado, la sesión permanece al cerrar y abrir el navegador.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={keepSession}
+                    onClick={() => {
+                      const nextValue = !keepSession;
+                      setKeepSession(nextValue);
+                      showToast(
+                        nextValue
+                          ? 'Sesión persistente activada'
+                          : 'Sesión solo para esta pestaña activada',
+                        'success'
+                      );
+                    }}
+                    className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+                      keepSession ? 'bg-green-500' : 'bg-gray-300'
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                        keepSession ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
                 </div>
               </div>
 

@@ -5,7 +5,6 @@
  * usando las constantes de endpoints definidas en src/constants/endpoints.ts
  */
 
-import { ENDPOINTS, HTTP_METHODS, HTTP_STATUS, ERROR_MESSAGES } from '../constants/endpoints';
 import {
   auth,
   students,
@@ -41,7 +40,7 @@ export async function exampleLogin() {
  */
 export async function exampleRegister() {
   try {
-    const response = await auth.register('nuevo@example.com', 'password123', 'Juan Pérez');
+    const response = await auth.register('Juan', 'Pérez', 'López', 'nuevo@example.com', 'password123', '5551234567', 'tutor');
     console.log('Usuario registrado:', response.user);
   } catch (error) {
     console.error('Error en registro:', error);
@@ -69,9 +68,9 @@ export async function exampleLogout() {
  */
 export async function exampleListStudents() {
   try {
-    const response = await students.list(1, 20); // página 1, 20 por página
+    const response = await students.list({ page: 1, limit: 20 }); // página 1, 20 por página
     console.log('Estudiantes:', response.data);
-    console.log('Total:', response.total);
+    console.log('Total:', response.pagination.total);
   } catch (error) {
     console.error('Error al listar estudiantes:', error);
   }
@@ -98,12 +97,11 @@ export async function exampleGetStudent(studentId: string) {
 export async function exampleCreateStudent() {
   try {
     const newStudent = await students.create({
-      name: 'María García López',
-      email: 'maria@example.com',
-      phone: '1234567890',
-      gender: 'F',
-      emergency_contact: 'Juan García',
-      emergency_phone: '0987654321',
+      firstName: 'María',
+      paternalSurname: 'García',
+      maternalSurname: 'López',
+      enrollmentNumber: 'NOK-2026-0001',
+      status: 'activo',
     });
     console.log('Estudiante creado:', newStudent.id);
   } catch (error) {
@@ -117,8 +115,8 @@ export async function exampleCreateStudent() {
 export async function exampleUpdateStudent(studentId: string) {
   try {
     const updated = await students.update(studentId, {
-      name: 'María García López Updated',
-      phone: '9876543210',
+      firstName: 'María',
+      paternalSurname: 'García Updated',
     });
     console.log('Estudiante actualizado:', updated);
   } catch (error) {
@@ -148,7 +146,7 @@ export async function exampleDeleteStudent(studentId: string) {
 export async function exampleListSubjects() {
   try {
     const response = await subjects.list();
-    console.log('Materias:', response.data);
+    console.log('Materias:', response);
   } catch (error) {
     console.error('Error al listar materias:', error);
   }
@@ -163,6 +161,8 @@ export async function exampleCreateSubject() {
       name: 'Matemáticas',
       code: 'MAT-101',
       description: 'Curso de matemáticas básicas',
+      credits: 3,
+      status: 'activo',
     });
     console.log('Materia creada:', newSubject.id);
   } catch (error) {
@@ -194,6 +194,10 @@ export async function exampleCreateAilment() {
     const newAilment = await ailments.create({
       name: 'Asma',
       description: 'Enfermedad respiratoria crónica',
+      medication: 'Inhalador',
+      medicalDescription: 'Condición que requiere control por especialista',
+      severity: 'moderado',
+      notes: 'Evitar exposición a polvo',
     });
     console.log('Padecimiento creado:', newAilment.id);
   } catch (error) {
@@ -211,7 +215,7 @@ export async function exampleCreateAilment() {
 export async function exampleListUsers() {
   try {
     const response = await users.list();
-    console.log('Usuarios:', response.data);
+    console.log('Usuarios:', response);
   } catch (error) {
     console.error('Error al listar usuarios:', error);
   }
@@ -223,10 +227,11 @@ export async function exampleListUsers() {
 export async function exampleCreateUser() {
   try {
     const newUser = await users.create({
+      firstName: 'Carlos',
+      paternalSurname: 'Profesor',
       email: 'profesor@example.com',
       password: 'password123',
-      name: 'Carlos Profesor',
-      role: 'teacher',
+      role: 'tutor',
     });
     console.log('Usuario creado:', newUser.id);
   } catch (error) {
@@ -268,8 +273,8 @@ export async function exampleListStudentAilments(studentId: string) {
 export async function exampleAssignAilmentToStudent(studentId: string, ailmentId: string) {
   try {
     const result = await studentAilments.create({
-      student_id: studentId,
-      ailment_id: ailmentId,
+      studentId,
+      ailmentId,
       notes: 'Requiere medicamentos especiales',
     });
     console.log('Padecimiento asignado:', result.id);
@@ -288,7 +293,7 @@ export async function exampleAssignAilmentToStudent(studentId: string, ailmentId
 export async function exampleListStudentSubjects(studentId: string) {
   try {
     const response = await studentSubjects.list(studentId);
-    console.log('Materias del estudiante:', response.data);
+    console.log('Materias del estudiante:', response);
   } catch (error) {
     console.error('Error al listar materias:', error);
   }
@@ -300,10 +305,10 @@ export async function exampleListStudentSubjects(studentId: string) {
 export async function exampleAssignSubjectToStudent(studentId: string, subjectId: string) {
   try {
     const result = await studentSubjects.create({
-      student_id: studentId,
-      subject_id: subjectId,
+      studentId,
+      subjectId,
     });
-    console.log('Materia asignada:', result.id);
+    console.log('Materia asignada:', result);
   } catch (error) {
     console.error('Error al asignar materia:', error);
   }
@@ -331,10 +336,10 @@ export async function exampleListEnrollments(studentId?: string) {
 export async function exampleCreateEnrollment() {
   try {
     const enrollment = await enrollments.create({
-      student_id: 'alumno-id-123',
-      program_id: 'programa-id-456',
-      status: 'active',
-      enrollment_date: new Date().toISOString(),
+      studentId: 'alumno-id-123',
+      program: 'Programa I',
+      status: 'activo',
+      enrollmentDate: new Date().toISOString().slice(0, 10),
     });
     console.log('Inscripción creada:', enrollment.id);
   } catch (error) {
@@ -352,7 +357,7 @@ export async function exampleCreateEnrollment() {
 export async function exampleListDocuments(studentId: string) {
   try {
     const response = await documents.list(studentId);
-    console.log('Documentos:', response.data);
+    console.log('Documentos:', response);
   } catch (error) {
     console.error('Error al listar documentos:', error);
   }
@@ -361,14 +366,14 @@ export async function exampleListDocuments(studentId: string) {
 /**
  * Ejemplo 23: Subir documento
  */
-export async function exampleUploadDocument(file: File, studentId: string, subjectId?: string) {
+export async function exampleUploadDocument(file: File, studentId: string, _subjectId?: string) {
   try {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('student_id', studentId);
-    if (subjectId) formData.append('subject_id', subjectId);
-
-    const result = await documents.upload(formData);
+    const result = await documents.upload({
+      studentId,
+      documentType: 'pdf',
+      fileName: file.name,
+      fileUrl: URL.createObjectURL(file),
+    });
     console.log('Documento subido:', result.id);
   } catch (error) {
     console.error('Error al subir documento:', error);

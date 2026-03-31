@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { X } from 'lucide-react';
-import { auth, users, API_BASE_URL } from '../lib/api';
-import { ENDPOINTS } from '../constants/endpoints';
+import { X, Eye, EyeOff } from 'lucide-react';
+import { users as usersApi } from '../lib/api';
 import { showToast } from './Toast';
+import { formatPhoneMask, isValidPhone } from '../lib/validators';
+import ConfirmationModal from './ConfirmationModal';
 
 interface AddUserModalProps {
   onClose: () => void;
@@ -15,7 +16,7 @@ type UserRole = 'tutor' | 'admin';
 export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) {
   const [currentStep, setCurrentStep] = useState<Step>('info');
   const [role, setRole] = useState<UserRole>('tutor');
-  const [formData, setFormData] = useState({
+  const initialFormData = {
     firstName: '',
     paternalSurname: '',
     maternalSurname: '',
@@ -24,8 +25,26 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
     password: '',
     confirmPassword: '',
     role: 'tutor' as UserRole,
-  });
+  };
+  const [formData, setFormData] = useState(initialFormData);
+  const [savedFormData, setSavedFormData] = useState(initialFormData);
+  const [showUnsavedChangesConfirm, setShowUnsavedChangesConfirm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+
+  const hasUnsavedChanges = () => {
+    return JSON.stringify(formData) !== JSON.stringify(savedFormData);
+  };
+
+  const handleClose = () => {
+    if (hasUnsavedChanges()) {
+      setShowUnsavedChangesConfirm(true);
+    } else {
+      onClose();
+    }
+  };
 
   const updateField = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -36,6 +55,10 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
       showToast('Por favor ingresa el nombre', 'error');
       return false;
     }
+    if (!formData.paternalSurname.trim()) {
+      showToast('Por favor ingresa el apellido paterno', 'error');
+      return false;
+    }
     if (!formData.email.trim()) {
       showToast('Por favor ingresa el correo electrónico', 'error');
       return false;
@@ -44,18 +67,25 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
       showToast('Por favor ingresa un correo válido', 'error');
       return false;
     }
-    // La contraseña es opcional; si no se proporciona no intentamos crear un
-    // usuario en Auth. Esto evita errores cuando el administrador está
-    // autenticado y no puede llamar a signUp.
-    if (formData.password) {
-      if (formData.password.length < 6) {
-        showToast('La contraseña debe tener al menos 6 caracteres', 'error');
-        return false;
-      }
-      if (formData.password !== formData.confirmPassword) {
-        showToast('Las contraseñas no coinciden', 'error');
-        return false;
-      }
+    if (!formData.phone.trim()) {
+      showToast('Por favor ingresa el teléfono', 'error');
+      return false;
+    }
+    if (!isValidPhone(formData.phone)) {
+      showToast('Por favor ingresa un teléfono válido (10 a 15 dígitos)', 'error');
+      return false;
+    }
+    if (!formData.password) {
+      showToast('La contraseña es obligatoria', 'error');
+      return false;
+    }
+    if (formData.password.length < 8) {
+      showToast('La contraseña debe tener al menos 8 caracteres', 'error');
+      return false;
+    }
+    if (formData.password !== formData.confirmPassword) {
+      showToast('Las contraseñas no coinciden', 'error');
+      return false;
     }
     return true;
   };
@@ -65,46 +95,21 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
       return;
     }
 
+    setShowSubmitConfirm(true);
+  };
+
+  const performSubmit = async () => {
     setIsLoading(true);
     try {
-      let authUser: any = null;
-
-      // Si el usuario dejó contraseña, intentamos crear la cuenta de Auth usando la API
-      if (formData.password) {
-        try {
-          authUser = await auth.register(formData.email, formData.password, formData.firstName);
-        } catch (authError) {
-          // Solo avisamos, no abortamos la creación del registro
-          console.warn('Error al crear usuario Auth:', authError);
-        }
-      }
-
-      // Crear el registro de usuario usando llamada directa a la API
-      const token = localStorage.getItem('auth_token');
-      const userData = {
-        user_id: authUser?.user?.id || null,
-        first_name: formData.firstName,
-        paternal_surname: formData.paternalSurname,
-        maternal_surname: formData.maternalSurname,
+      await usersApi.create({
+        firstName: formData.firstName,
+        paternalSurname: formData.paternalSurname,
+        maternalSurname: formData.maternalSurname || '',
         email: formData.email,
-        phone: formData.phone,
-        role: role,
-        status: 'activo',
-      };
-
-      const response = await fetch(`${API_BASE_URL}${ENDPOINTS.USERS.CREATE}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(userData),
+        password: formData.password,
+        phone: formData.phone || '',
+        role,
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Error al crear el usuario');
-      }
 
       showToast(`${role === 'admin' ? 'Administrador' : 'Tutor'} agregado exitosamente`, 'success');
       onSuccess();
@@ -150,7 +155,7 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
               <p className="text-sm text-gray-500">Por favor llena los campos solicitados</p>
             </div>
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="p-2 hover:bg-gray-100 rounded-full transition-colors"
             >
               <X size={24} className="text-gray-600" />
@@ -175,7 +180,7 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
                         : 'border-gray-300 bg-white text-gray-700 hover:border-green-300'
                     }`}
                   >
-                    👨‍🏫 Tutor
+                    Tutor
                   </button>
                   <button
                     onClick={() => {
@@ -188,7 +193,7 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
                         : 'border-gray-300 bg-white text-gray-700 hover:border-green-300'
                     }`}
                   >
-                    ⚙️ Administrador
+                    Administrador
                   </button>
                 </div>
               </div>
@@ -259,7 +264,7 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
                 <input
                   type="tel"
                   value={formData.phone}
-                  onChange={(e) => updateField('phone', e.target.value)}
+                  onChange={(e) => updateField('phone', formatPhoneMask(e.target.value))}
                   placeholder="555-123-4567"
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
@@ -273,15 +278,25 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Contraseña
                 </label>
-                <input
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => updateField('password', e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={formData.password}
+                    onChange={(e) => updateField('password', e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full px-4 py-2 pr-11 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                  >
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  Mínimo 6 caracteres. Dejar en blanco si no quieres configurar acceso ahora.
+                  Mínimo 8 caracteres. Dejar en blanco si no quieres configurar acceso ahora.
                 </p>
               </div>
 
@@ -289,20 +304,30 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Confirmar Contraseña
                 </label>
-                <input
-                  type="password"
-                  value={formData.confirmPassword}
-                  onChange={(e) => updateField('confirmPassword', e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={formData.confirmPassword}
+                    onChange={(e) => updateField('confirmPassword', e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full px-4 py-2 pr-11 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                    aria-label={showConfirmPassword ? 'Ocultar confirmación' : 'Mostrar confirmación'}
+                  >
+                    {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
             </div>
           )}
 
           <div className="flex items-center justify-end space-x-4 mt-8 pt-6 border-t border-gray-200">
             <button
-              onClick={onClose}
+              onClick={handleClose}
               className="px-8 py-2 border border-gray-300 rounded-full font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
             >
               Cancelar
@@ -314,7 +339,7 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
                 if (currentIndex < stepOrder.length - 1) {
                   setCurrentStep(stepOrder[currentIndex + 1]);
                 } else {
-                  handleSubmit();
+                  void handleSubmit();
                 }
               }}
               disabled={isLoading}
@@ -325,6 +350,33 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
           </div>
         </div>
       </div>
+
+      <ConfirmationModal
+        isOpen={showSubmitConfirm}
+        type="add"
+        title="Confirmar alta de usuario"
+        message="¿Deseas guardar este usuario con la información capturada?"
+        confirmText="Guardar usuario"
+        onConfirm={() => {
+          setShowSubmitConfirm(false);
+          void performSubmit();
+        }}
+        onCancel={() => setShowSubmitConfirm(false)}
+      />
+
+      <ConfirmationModal
+        isOpen={showUnsavedChangesConfirm}
+        type="info"
+        title="Cambios Sin Guardar"
+        message="Tienes cambios sin guardar. ¿Estás seguro de que deseas cerrar sin guardar?"
+        onConfirm={() => {
+          setShowUnsavedChangesConfirm(false);
+          onClose();
+        }}
+        onCancel={() => setShowUnsavedChangesConfirm(false)}
+        confirmText="Cerrar Sin Guardar"
+        cancelText="Continuar Editando"
+      />
     </div>
   );
 }

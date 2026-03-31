@@ -1,302 +1,390 @@
-import { useEffect, useState } from 'react';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, ResponsiveContainer, BarChart, Bar } from 'recharts';
-import { dashboard, students } from '../lib/api';
+import { useEffect, useMemo, useState } from 'react';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  PieChart,
+  Pie,
+  Cell,
+  LineChart,
+  Line,
+} from 'recharts';
+import { RefreshCw } from 'lucide-react';
+import { dashboard, students, Student } from '../lib/api';
 import Layout from '../components/Layout';
+import { showToast } from '../components/Toast';
 
-interface Student {
-  id: string;
-  first_name: string;
-  paternal_surname: string;
-  maternal_surname: string;
-  enrollment_date: string;
-  birth_date?: string;
-  current_level?: string;
-  status: string;
+interface StatusPoint {
+  name: string;
+  value: number;
 }
 
-interface Enrollment {
-  due_date: string;
-  student_id: string;
-}
-
-interface ProgramCount {
-  program: string;
-  count: number;
-}
-
-interface AgeGroup {
-  age: string;
-  count: number;
-}
-
-interface LevelCount {
+interface LevelPoint {
   level: string;
   count: number;
 }
 
+interface ProgramPoint {
+  program: string;
+  count: number;
+}
+
+interface MonthPoint {
+  month: string;
+  altas: number;
+}
+
+interface ExpiringEnrollment {
+  id: string;
+  dueDate?: string | null;
+  student?: {
+    firstName?: string;
+    paternalSurname?: string;
+    maternalSurname?: string | null;
+  };
+}
+
+const STATUS_COLORS = ['#22c55e', '#f59e0b', '#ef4444'];
+
 export default function Dashboard() {
-  const [students, setStudents] = useState<Student[]>([]);
-  const [activeStudents, setActiveStudents] = useState(0);
-  const [droppedStudents, setDroppedStudents] = useState(0);
-  const [thisMonthEnrollments, setThisMonthEnrollments] = useState(0);
-  const [averageGrade, setAverageGrade] = useState(9.3);
-  const [expiringEnrollments, setExpiringEnrollments] = useState<any[]>([]);
-  const [programCounts, setProgramCounts] = useState<ProgramCount[]>([]);
-  const [ageGroups, setAgeGroups] = useState<AgeGroup[]>([]);
-  const [levelCounts, setLevelCounts] = useState<LevelCount[]>([]);
-  const [currentProgramIndex, setCurrentProgramIndex] = useState(0);
+  const [allStudents, setAllStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expiringEnrollments, setExpiringEnrollments] = useState<ExpiringEnrollment[]>([]);
+  const [programSlide, setProgramSlide] = useState(0);
 
   useEffect(() => {
-    fetchData();
+    void fetchDashboardData();
   }, []);
 
-  const fetchData = async () => {
+  const fetchDashboardData = async () => {
+    setLoading(true);
     try {
-      // Fetch dashboard stats
-      const stats = await dashboard.getStats();
-      
-      // Fetch students data for additional calculations
-      const studentsResponse = await students.list(1, 1000); // Get many students
-      const studentsData = studentsResponse.data;
+      const [studentsResponse, statsResponse] = await Promise.all([
+        students.list({ page: 1, limit: 100 }),
+        dashboard.getStats(),
+      ]);
 
-      if (studentsData) {
-        setStudents(studentsData);
-        setActiveStudents(studentsData.filter(s => s.status === 'activo').length);
-        setDroppedStudents(studentsData.filter(s => s.status === 'baja').length);
+      setAllStudents(studentsResponse.data || []);
 
-        // Calculate students enrolled this month
-        const now = new Date();
-        const thisMonth = studentsData.filter(s => {
-          const enrollmentDate = new Date(s.enrollment_date);
-          return enrollmentDate.getMonth() === now.getMonth() && enrollmentDate.getFullYear() === now.getFullYear();
-        }).length;
-        setThisMonthEnrollments(thisMonth);
-
-        // Calculate program counts (assuming program is stored in students or inscriptions)
-        // For now, using a mock or assuming from inscriptions
-        const programMap = new Map<string, number>();
-        studentsData.forEach(student => {
-          const program = student.current_level || 'Sin Programa'; // Adjust based on actual field
-          programMap.set(program, (programMap.get(program) || 0) + 1);
-        });
-        const programs = Array.from(programMap.entries()).map(([program, count]) => ({ program, count }));
-        setProgramCounts(programs);
-
-        // Calculate age groups
-        const ageMap = new Map<string, number>();
-        studentsData.forEach(student => {
-          if (student.birth_date) {
-            const age = new Date().getFullYear() - new Date(student.birth_date).getFullYear();
-            const group = age < 10 ? '0-9' : age < 20 ? '10-19' : age < 30 ? '20-29' : '30+';
-            ageMap.set(group, (ageMap.get(group) || 0) + 1);
-          }
-        });
-        const ages = Array.from(ageMap.entries()).map(([age, count]) => ({ age, count }));
-        setAgeGroups(ages);
-
-        // Calculate level counts
-        const levelMap = new Map<string, number>();
-        studentsData.forEach(student => {
-          const level = student.current_level || 'Sin Nivel';
-          levelMap.set(level, (levelMap.get(level) || 0) + 1);
-        });
-        const levels = Array.from(levelMap.entries()).map(([level, count]) => ({ level, count }));
-        setLevelCounts(levels);
-      }
-
-      // Use stats from API if available
-      if (stats) {
-        // Update state with API stats if they exist
-        if (stats.active_students !== undefined) setActiveStudents(stats.active_students);
-        if (stats.dropped_students !== undefined) setDroppedStudents(stats.dropped_students);
-        if (stats.this_month_enrollments !== undefined) setThisMonthEnrollments(stats.this_month_enrollments);
-        if (stats.average_grade !== undefined) setAverageGrade(stats.average_grade);
-        if (stats.program_counts) setProgramCounts(stats.program_counts);
-        if (stats.age_groups) setAgeGroups(stats.age_groups);
-        if (stats.level_counts) setLevelCounts(stats.level_counts);
-        if (stats.expiring_enrollments) setExpiringEnrollments(stats.expiring_enrollments);
-      }
+      const stats = statsResponse as {
+        expiringEnrollments?: ExpiringEnrollment[];
+      };
+      setExpiringEnrollments(stats.expiringEnrollments || []);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
+      const message = error instanceof Error ? error.message : 'Error al cargar estadísticas';
+      showToast(message, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const enrollmentChartData = [
-    { month: 'ENE', value: 10 },
-    { month: 'FEB', value: 15 },
-    { month: 'MAR', value: 22 },
-    { month: 'ABR', value: 30 },
-    { month: 'MAY', value: 40 },
-    { month: 'JUN', value: 52 },
-    { month: 'JUL', value: 68 },
-    { month: 'AGO', value: 85 },
-    { month: 'SEP', value: 95 },
-    { month: 'OCT', value: 100 },
+  const totalStudents = allStudents.length;
+
+  const statusCounts = useMemo(() => {
+    const counts = {
+      activo: 0,
+      pendiente: 0,
+      baja: 0,
+    };
+
+    for (const student of allStudents) {
+      if (student.status === 'activo') counts.activo += 1;
+      else if (student.status === 'pendiente') counts.pendiente += 1;
+      else if (student.status === 'baja') counts.baja += 1;
+    }
+
+    return counts;
+  }, [allStudents]);
+
+  const thisMonthEnrollments = useMemo(() => {
+    const now = new Date();
+    return allStudents.filter((s) => {
+      if (!s.enrollmentDate) return false;
+      const d = new Date(s.enrollmentDate);
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    }).length;
+  }, [allStudents]);
+
+  const statusChartData: StatusPoint[] = [
+    { name: 'Activos', value: statusCounts.activo },
+    { name: 'Pendientes', value: statusCounts.pendiente },
+    { name: 'Baja', value: statusCounts.baja },
   ];
 
-  const nextProgram = () => {
-    setCurrentProgramIndex((prev) => (prev + 1) % programCounts.length);
-  };
+  const totalDropouts = statusCounts.baja;
 
-  const prevProgram = () => {
-    setCurrentProgramIndex((prev) => (prev - 1 + programCounts.length) % programCounts.length);
-  };
+  const levelChartData: LevelPoint[] = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const student of allStudents) {
+      const level = student.currentLevel || 'Sin nivel';
+      map.set(level, (map.get(level) || 0) + 1);
+    }
+    return Array.from(map.entries()).map(([level, count]) => ({ level, count }));
+  }, [allStudents]);
+
+  const programChartData: ProgramPoint[] = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const student of allStudents) {
+      const program = student.program || 'Sin programa';
+      map.set(program, (map.get(program) || 0) + 1);
+    }
+    return Array.from(map.entries()).map(([program, count]) => ({ program, count }));
+  }, [allStudents]);
+
+  const programSlides = useMemo(() => {
+    if (programChartData.length === 0) {
+      return [{ program: 'Sin programa', count: 0 }];
+    }
+    return programChartData.sort((a, b) => b.count - a.count);
+  }, [programChartData]);
+
+  const activeProgram = programSlides[Math.min(programSlide, programSlides.length - 1)] || { program: 'Sin programa', count: 0 };
+
+  const ageChartData = useMemo(() => {
+    const ranges = [
+      { key: '3-5', min: 3, max: 5, count: 0 },
+      { key: '6-8', min: 6, max: 8, count: 0 },
+      { key: '9-11', min: 9, max: 11, count: 0 },
+      { key: '12-14', min: 12, max: 14, count: 0 },
+      { key: '15+', min: 15, max: 120, count: 0 },
+      { key: 'Sin dato', min: -1, max: -1, count: 0 },
+    ];
+
+    const currentYear = new Date().getFullYear();
+    for (const student of allStudents) {
+      if (!student.birthDate) {
+        ranges[5].count += 1;
+        continue;
+      }
+
+      const birth = new Date(student.birthDate);
+      if (Number.isNaN(birth.getTime())) {
+        ranges[5].count += 1;
+        continue;
+      }
+
+      const age = currentYear - birth.getFullYear();
+      const range = ranges.find((r) => r.min <= age && age <= r.max);
+      if (range) {
+        range.count += 1;
+      } else {
+        ranges[5].count += 1;
+      }
+    }
+
+    return ranges.map((r) => ({ range: r.key, count: r.count }));
+  }, [allStudents]);
+
+  useEffect(() => {
+    if (programSlide > programSlides.length - 1) {
+      setProgramSlide(0);
+    }
+  }, [programSlides, programSlide]);
+
+  const monthlyEnrollmentsData: MonthPoint[] = useMemo(() => {
+    const now = new Date();
+    const months: MonthPoint[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      const monthLabel = date.toLocaleString('es-MX', { month: 'short' }).toUpperCase();
+      const altas = allStudents.filter((s) => {
+        if (!s.enrollmentDate) return false;
+        const d = new Date(s.enrollmentDate);
+        const dKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        return dKey === key;
+      }).length;
+      months.push({ month: monthLabel, altas });
+    }
+    return months;
+  }, [allStudents]);
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="bg-white rounded-3xl shadow-lg p-10 text-center text-gray-600">
+          Cargando estadísticas...
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-        {/* Program Carousel */}
-        <div className="bg-white rounded-3xl shadow-lg p-6">
-          <h2 className="text-xl font-bold text-blue-900 mb-4 uppercase">
-            Inscripciones por Programa
-          </h2>
-          {programCounts.length > 0 ? (
-            <div className="relative">
-              <div className="text-center">
-                <div className="text-4xl font-black text-green-600 mb-2">
-                  {programCounts[currentProgramIndex]?.count || 0}
-                </div>
-                <div className="text-sm font-bold text-gray-700 uppercase">
-                  {programCounts[currentProgramIndex]?.program || ''}
-                </div>
+      <div className="space-y-6">
+        <div className="flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => void fetchDashboardData()}
+            className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2.5 rounded-full font-semibold hover:bg-gray-50 transition-colors"
+          >
+            <RefreshCw size={18} />
+            Recargar
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <div className="bg-white rounded-3xl shadow-lg p-6">
+            <p className="text-xs uppercase text-gray-500 font-semibold">Total Alumnos</p>
+            <p className="text-5xl font-black text-blue-900 mt-2">{totalStudents}</p>
+          </div>
+          <div className="bg-white rounded-3xl shadow-lg p-6">
+            <p className="text-xs uppercase text-gray-500 font-semibold">Activos</p>
+            <p className="text-5xl font-black text-green-600 mt-2">{statusCounts.activo}</p>
+          </div>
+          <div className="bg-white rounded-3xl shadow-lg p-6">
+            <p className="text-xs uppercase text-gray-500 font-semibold">Pendientes</p>
+            <p className="text-5xl font-black text-yellow-500 mt-2">{statusCounts.pendiente}</p>
+          </div>
+          <div className="bg-white rounded-3xl shadow-lg p-6">
+            <p className="text-xs uppercase text-gray-500 font-semibold">Bajas</p>
+            <p className="text-5xl font-black text-red-600 mt-2">{totalDropouts}</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="bg-white rounded-3xl shadow-lg p-6 xl:col-span-1">
+            <h2 className="text-lg font-bold text-gray-800">Programas Inscritos</h2>
+            <div className="rounded-2xl border border-gray-200 p-6 min-h-[180px] flex flex-col justify-between">
+              <div>
+                <p className="text-xs uppercase text-gray-500">Programa</p>
+                <p className="text-2xl font-extrabold text-gray-900 mt-1">{activeProgram.program}</p>
               </div>
-              <div className="flex justify-between mt-4">
-                <button onClick={prevProgram} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200">
-                  ‹
-                </button>
-                <button onClick={nextProgram} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200">
-                  ›
-                </button>
+              <div>
+                <p className="text-xs uppercase text-gray-500">Alumnos inscritos</p>
+                <p className="text-5xl font-black text-amber-500 leading-none">{activeProgram.count}</p>
               </div>
             </div>
+            <div className="mt-4 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setProgramSlide((prev) => (prev === 0 ? programSlides.length - 1 : prev - 1))}
+                className="px-3 py-1 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Anterior
+              </button>
+              <p className="text-sm text-gray-500">
+                {programSlides.length === 0 ? 0 : programSlide + 1} de {programSlides.length}
+              </p>
+              <button
+                type="button"
+                onClick={() => setProgramSlide((prev) => (prev + 1) % programSlides.length)}
+                className="px-3 py-1 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Siguiente
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl shadow-lg p-6 xl:col-span-2">
+            <h2 className="text-lg font-bold text-gray-800 mb-4">Altas de Alumnos (Últimos 6 Meses)</h2>
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={monthlyEnrollmentsData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="month" />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Line type="monotone" dataKey="altas" stroke="#2563eb" strokeWidth={3} dot={{ r: 4 }} />
+              </LineChart>
+            </ResponsiveContainer>
+            <div className="mt-3 text-sm text-gray-600">
+              Altas del mes actual: <span className="font-bold text-indigo-600">{thisMonthEnrollments}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+          <div className="bg-white rounded-3xl shadow-lg p-6 xl:col-span-1">
+            <h2 className="text-lg font-bold text-gray-800 mb-4">Distribución por Estatus</h2>
+            <ResponsiveContainer width="100%" height={260}>
+              <PieChart>
+                <Pie data={statusChartData} dataKey="value" nameKey="name" outerRadius={95} label>
+                  {statusChartData.map((entry, index) => (
+                    <Cell key={entry.name} fill={STATUS_COLORS[index % STATUS_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="bg-white rounded-3xl shadow-lg p-6 xl:col-span-2">
+            <h2 className="text-lg font-bold text-gray-800 mb-4">Alumnos Inscritos por Edad</h2>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={ageChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="range" />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Bar dataKey="count" fill="#0ea5e9" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div className="bg-white rounded-3xl shadow-lg p-6">
+            <h2 className="text-lg font-bold text-gray-800 mb-4">Alumnos por Nivel</h2>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={levelChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="level" />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Bar dataKey="count" fill="#16a34a" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="bg-white rounded-3xl shadow-lg p-6">
+            <h2 className="text-lg font-bold text-gray-800 mb-4">Top Programas</h2>
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={programSlides.slice(0, 8)}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                <XAxis dataKey="program" />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Bar dataKey="count" fill="#f59e0b" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-3xl shadow-lg p-6">
+          <h2 className="text-lg font-bold text-gray-800 mb-4">Inscripciones Próximas a Vencer</h2>
+          {expiringEnrollments.length === 0 ? (
+            <p className="text-gray-500 text-sm">No hay inscripciones próximas a vencer.</p>
           ) : (
-            <p className="text-center text-gray-500">No hay datos</p>
-          )}
-        </div>
-
-        {/* Age Groups Chart */}
-        <div className="bg-white rounded-3xl shadow-lg p-6">
-          <h2 className="text-xl font-bold text-blue-900 mb-4 uppercase">
-            Alumnos por Edad
-          </h2>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={ageGroups}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="age" stroke="#9ca3af" fontSize={12} />
-              <YAxis stroke="#9ca3af" fontSize={12} />
-              <Bar dataKey="count" fill="#3b82f6" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Level Counts Chart */}
-        <div className="bg-white rounded-3xl shadow-lg p-6">
-          <h2 className="text-xl font-bold text-blue-900 mb-4 uppercase">
-            Alumnos por Nivel Escolar
-          </h2>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={levelCounts}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="level" stroke="#9ca3af" fontSize={12} />
-              <YAxis stroke="#9ca3af" fontSize={12} />
-              <Bar dataKey="count" fill="#10b981" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Expiring Enrollments */}
-        <div className="bg-white rounded-3xl shadow-lg p-6">
-          <h2 className="text-xl font-bold text-blue-900 mb-4 uppercase">
-            Vencimiento de Inscripción
-          </h2>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="text-left text-sm font-semibold text-gray-600">
-                  <th className="pb-3">Nombre</th>
-                  <th className="pb-3">Vencimiento</th>
-                  <th className="pb-3">Contacto</th>
-                </tr>
-              </thead>
-              <tbody>
-                {expiringEnrollments.slice(0, 3).map((enrollment, idx) => (
-                  <tr key={idx} className="border-t border-gray-100">
-                    <td className="py-3 text-blue-600 font-semibold">
-                      {enrollment.students?.first_name} {enrollment.students?.paternal_surname}
-                    </td>
-                    <td className="py-3 text-gray-700">
-                      {new Date(enrollment.due_date).toLocaleDateString()}
-                    </td>
-                    <td className="py-3 text-gray-700">61H000000</td>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-gray-500 border-b">
+                    <th className="py-2">Alumno</th>
+                    <th className="py-2">Vence</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Enrollment Chart */}
-        <div className="bg-white rounded-3xl shadow-lg p-6">
-          <h2 className="text-xl font-bold text-blue-900 mb-4 uppercase">
-            Inscripciones 2026
-          </h2>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={enrollmentChartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="month" stroke="#9ca3af" fontSize={12} />
-              <YAxis stroke="#9ca3af" fontSize={12} />
-              <Line
-                type="monotone"
-                dataKey="value"
-                stroke="#10b981"
-                strokeWidth={3}
-                dot={{ fill: '#10b981', r: 4 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Dropped Students */}
-        <div className="bg-white rounded-3xl shadow-lg p-8 flex flex-col items-center justify-center">
-          <div className="text-6xl font-black text-red-600 mb-2">
-            {droppedStudents}
-          </div>
-          <div className="text-sm font-bold text-red-600 uppercase tracking-wide text-center">
-            Alumnos Dados de Baja
-          </div>
-          <div className="text-xs text-gray-500 mt-2">
-            Mes pasado: {droppedStudents} {/* Placeholder, need to filter by month */}
-          </div>
-        </div>
-
-        {/* This Month Enrollments */}
-        <div className="bg-white rounded-3xl shadow-lg p-8 flex flex-col items-center justify-center">
-          <div className="text-6xl font-black text-green-600 mb-2">
-            {thisMonthEnrollments}
-          </div>
-          <div className="text-sm font-bold text-green-600 uppercase tracking-wide text-center">
-            Inscripciones Este Mes
-          </div>
-        </div>
-
-        {/* Active Students */}
-        <div className="bg-white rounded-3xl shadow-lg p-8 flex flex-col items-center justify-center">
-          <div className="text-6xl font-black text-blue-900 mb-2">
-            {activeStudents}
-          </div>
-          <div className="text-sm font-bold text-blue-900 uppercase tracking-wide text-center">
-            Alumnos Activos
-          </div>
-        </div>
-
-        {/* Average Grade */}
-        <div className="bg-white rounded-3xl shadow-lg p-8 flex flex-col items-center justify-center">
-          <div className="text-6xl font-black text-blue-900 mb-2">
-            {averageGrade.toFixed(1)}
-          </div>
-          <div className="text-sm font-bold text-blue-900 uppercase tracking-wide text-center">
-            Promedio General
-          </div>
+                </thead>
+                <tbody>
+                  {expiringEnrollments.slice(0, 10).map((enrollment) => (
+                    <tr key={enrollment.id} className="border-b border-gray-100">
+                      <td className="py-2 text-gray-700">
+                        {[enrollment.student?.firstName, enrollment.student?.paternalSurname, enrollment.student?.maternalSurname]
+                          .filter(Boolean)
+                          .join(' ') || 'Alumno'}
+                      </td>
+                      <td className="py-2 text-gray-700">
+                        {enrollment.dueDate ? new Date(enrollment.dueDate).toLocaleDateString('es-MX') : 'Sin fecha'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     </Layout>

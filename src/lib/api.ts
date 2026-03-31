@@ -1,91 +1,331 @@
 // API Service - Centralizado para todas las llamadas a la API REST
 
-import { ENDPOINTS, HTTP_METHODS, ERROR_MESSAGES } from '../constants/endpoints';
+import { ENDPOINTS } from '../constants/endpoints';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+const SESSION_PERSISTENCE_KEY = 'session_persistence_mode';
+const AUTH_STORAGE_KEYS = ['auth_token', 'refresh_token', 'user_data'] as const;
+
+let refreshInFlight: Promise<void> | null = null;
 
 // Tipos
 export interface AuthResponse {
-  access_token: string;
-  refresh_token?: string;
-  user: any;
+  accessToken: string;
+  refreshToken?: string;
+  user: {
+    id: string;
+    email: string;
+    role: string;
+  };
 }
+
+interface RefreshTokenResponse {
+  accessToken: string;
+  refreshToken?: string;
+}
+
+interface ApiMessageResponse {
+  message: string;
+}
+
+const getPersistenceMode = (): 'local' | 'session' => {
+  return localStorage.getItem(SESSION_PERSISTENCE_KEY) === 'session' ? 'session' : 'local';
+};
+
+const getActiveStorage = (): Storage => {
+  return getPersistenceMode() === 'session' ? sessionStorage : localStorage;
+};
+
+const getSessionValue = (key: string): string | null => {
+  return localStorage.getItem(key) ?? sessionStorage.getItem(key);
+};
+
+const setSessionValue = (key: string, value: string): void => {
+  const storage = getActiveStorage();
+  const secondary = storage === localStorage ? sessionStorage : localStorage;
+  storage.setItem(key, value);
+  secondary.removeItem(key);
+};
+
+const removeSessionValue = (key: string): void => {
+  localStorage.removeItem(key);
+  sessionStorage.removeItem(key);
+};
+
+export const sessionSettings = {
+  isPersistent: (): boolean => getPersistenceMode() === 'local',
+  setPersistent: (persistent: boolean): void => {
+    const targetStorage = persistent ? localStorage : sessionStorage;
+
+    const values = AUTH_STORAGE_KEYS.reduce<Record<string, string>>((acc, key) => {
+      const value = getSessionValue(key);
+      if (value !== null) {
+        acc[key] = value;
+      }
+      return acc;
+    }, {});
+
+    AUTH_STORAGE_KEYS.forEach((key) => removeSessionValue(key));
+    Object.entries(values).forEach(([key, value]) => targetStorage.setItem(key, value));
+
+    localStorage.setItem(SESSION_PERSISTENCE_KEY, persistent ? 'local' : 'session');
+  },
+  getValue: (key: string): string | null => getSessionValue(key),
+  setValue: (key: string, value: string): void => setSessionValue(key, value),
+  removeValue: (key: string): void => removeSessionValue(key),
+};
 
 export interface Student {
   id: string;
+  firstName: string;
+  paternalSurname: string;
+  maternalSurname: string | null;
+  birthDate?: string | null;
+  curp?: string | null;
+  enrollmentNumber: string;
+  enrollmentDate?: string | null;
+  currentLevel?: string | null;
+  currentGrade?: string | null;
+  program?: string | null;
+  shift?: string | null;
+  representative?: string | null;
+  status: 'activo' | 'pendiente' | 'baja';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Tutor {
+  id: string;
+  studentId: string;
   name: string;
-  email: string;
-  phone?: string;
-  gender: 'M' | 'F' | 'O';
-  emergency_contact?: string;
-  emergency_phone?: string;
-  created_at: string;
-  updated_at: string;
+  phone?: string | null;
+  email?: string | null;
+  createdAt?: string;
+}
+
+export interface StudentSubjectRelation {
+  id: string;
+  grade?: string | null;
+  status?: 'active' | 'inactive';
+  subject: {
+    id: string;
+    name: string;
+    code: string;
+  };
+}
+
+export interface StudentDetailResponse extends Student {
+  tutors?: Tutor[];
+  subjects?: StudentSubjectRelation[];
+  ailments?: StudentAilment[];
+  documents?: Document[];
+}
+
+export interface StudentsPagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface StudentsListResponse {
+  data: Student[];
+  pagination: StudentsPagination;
+}
+
+export interface StudentDeleteResponse {
+  message: string;
+  id: string;
 }
 
 export interface Subject {
   id: string;
   name: string;
-  description?: string;
   code: string;
-  created_at: string;
+  description: string;
+  credits: number;
+  status: 'activo' | 'inactivo';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SubjectFilters {
+  status?: 'activo' | 'inactivo';
+  search?: string;
+}
+
+export interface CreateSubjectPayload {
+  name: string;
+  code: string;
+  description: string;
+  credits: number;
+  status: 'activo' | 'inactivo';
+}
+
+export interface UpdateSubjectPayload {
+  name?: string;
+  code?: string;
+  description?: string;
+  credits?: number;
+  status?: 'activo' | 'inactivo';
 }
 
 export interface Ailment {
   id: string;
   name: string;
   description?: string;
-  created_at: string;
+  medication?: string;
+  medicalDescription?: string;
+  severity?: 'leve' | 'moderado' | 'severo';
+  notes?: string;
+  createdAt?: string;
+}
+
+export interface CreateAilmentPayload {
+  name: string;
+  description: string;
+  medication: string;
+  medicalDescription: string;
+  severity: 'leve' | 'moderado' | 'severo';
+  notes: string;
 }
 
 export interface User {
   id: string;
+  firstName: string;
+  paternalSurname: string;
+  maternalSurname: string | null;
   email: string;
-  name: string;
-  role: 'admin' | 'teacher' | 'staff';
-  created_at: string;
+  phone: string | null;
+  role: 'admin' | 'tutor';
+  status: 'activo' | 'inactivo';
+  createdAt: string;
+}
+
+export interface CreateUserPayload {
+  firstName: string;
+  paternalSurname: string;
+  maternalSurname: string;
+  email: string;
+  password: string;
+  phone: string;
+  role: 'admin' | 'tutor';
+}
+
+export interface UpdateUserPayload {
+  status?: 'activo' | 'inactivo';
+  role?: 'admin' | 'tutor';
+  phone?: string;
+  firstName?: string;
+  paternalSurname?: string;
+  maternalSurname?: string | null;
 }
 
 export interface Enrollment {
   id: string;
-  student_id: string;
-  program_id: string;
-  status: 'active' | 'inactive' | 'completed';
-  enrollment_date: string;
+  studentId: string;
+  folio?: string | null;
+  enrollmentDate: string;
+  enrollmentType?: 'semanal' | 'trimestral' | 'anual' | null;
+  program?: string | null;
+  representativeId?: string | null;
+  status: string;
+  dueDate?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface StudentAilment {
   id: string;
-  student_id: string;
-  ailment_id: string;
+  studentId: string;
+  ailmentId: string;
   ailment?: Ailment;
+  status?: 'active' | 'inactive';
+  diagnosisDate?: string | null;
   notes?: string;
 }
 
 export interface Document {
   id: string;
-  student_id: string;
-  subject_id?: string;
-  file_url: string;
-  file_name: string;
-  file_type: string;
-  uploaded_at: string;
+  studentId: string;
+  documentType: string;
+  fileName: string;
+  fileUrl: string;
+  uploadedAt: string;
+}
+
+export interface CreateDocumentPayload {
+  studentId: string;
+  documentType: string;
+  fileName: string;
+  fileUrl: string;
 }
 
 // Helper para obtener token
 const getAuthHeader = (): HeadersInit => {
-  const token = localStorage.getItem('auth_token');
-  return {
-    'Authorization': `Bearer ${token}`,
+  const token = getSessionValue('auth_token');
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  return headers;
+};
+
+const shouldTryRefresh = (endpoint: string): boolean => {
+  const noRefreshEndpoints = [
+    ENDPOINTS.AUTH.LOGIN,
+    ENDPOINTS.AUTH.REGISTER,
+    ENDPOINTS.AUTH.VERIFY_EMAIL,
+    ENDPOINTS.AUTH.FORGOT_PASSWORD,
+    ENDPOINTS.AUTH.RESET_PASSWORD,
+    ENDPOINTS.AUTH.REFRESH,
+    ENDPOINTS.AUTH.LOGOUT,
+  ];
+
+  return !noRefreshEndpoints.some((authEndpoint) => endpoint.startsWith(authEndpoint));
+};
+
+const clearSessionStorage = () => {
+  removeSessionValue('auth_token');
+  removeSessionValue('refresh_token');
+  removeSessionValue('user_data');
+};
+
+const refreshAccessToken = async (): Promise<void> => {
+  if (!refreshInFlight) {
+    refreshInFlight = auth
+      .refresh()
+      .then(() => undefined)
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+
+  await refreshInFlight;
+};
+
+const parseApiError = async (response: Response): Promise<Error> => {
+  const errorPayload = await response.json().catch(() => null) as
+    | { message?: string; error?: string }
+    | null;
+
+  if (response.status === 401) {
+    return new Error(errorPayload?.message || 'Token inválido o expirado');
+  }
+
+  return new Error(errorPayload?.message || errorPayload?.error || `Error: ${response.status}`);
 };
 
 // Helper para requests
-const apiCall = async (
+const apiCall = async <T = unknown>(
   endpoint: string,
-  options: RequestInit = {}
-): Promise<any> => {
+  options: RequestInit = {},
+  retried = false
+): Promise<T> => {
   const headers = getAuthHeader();
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
@@ -95,12 +335,30 @@ const apiCall = async (
     },
   });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Error desconocido' }));
-    throw new Error(error.message || `Error: ${response.status}`);
+  if (response.status === 401 && !retried && shouldTryRefresh(endpoint)) {
+    try {
+      await refreshAccessToken();
+      return apiCall<T>(endpoint, options, true);
+    } catch {
+      clearSessionStorage();
+      throw new Error('Token inválido o expirado. Inicia sesión nuevamente.');
+    }
   }
 
-  return response.json();
+  if (!response.ok) {
+    throw await parseApiError(response);
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const text = await response.text();
+  if (!text) {
+    return undefined as T;
+  }
+
+  return JSON.parse(text) as T;
 };
 
 // =====================================
@@ -132,18 +390,18 @@ export const auth = {
     }
 
     const data: AuthResponse = JSON.parse(text);
-    localStorage.setItem('auth_token', data.access_token);
-    if (data.refresh_token) {
-      localStorage.setItem('refresh_token', data.refresh_token);
+    setSessionValue('auth_token', data.accessToken);
+    if (data.refreshToken) {
+      setSessionValue('refresh_token', data.refreshToken);
     }
     return data;
   },
 
-  register: async (email: string, password: string, name: string): Promise<AuthResponse> => {
+  register: async (firstName: string, paternalSurname: string, maternalSurname: string, email: string, password: string, phone: string, role: string): Promise<AuthResponse> => {
     const response = await fetch(`${API_BASE_URL}${ENDPOINTS.AUTH.REGISTER}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name }),
+      body: JSON.stringify({ firstName, paternalSurname, maternalSurname, email, password, phone, role }),
     });
 
     if (!response.ok) {
@@ -164,47 +422,70 @@ export const auth = {
     }
 
     const data: AuthResponse = JSON.parse(text);
-    if (!data.access_token) {
+    if (!data.accessToken) {
       // Si no viene token, intentar login
       return auth.login(email, password);
     }
 
-    localStorage.setItem('auth_token', data.access_token);
-    if (data.refresh_token) {
-      localStorage.setItem('refresh_token', data.refresh_token);
+    setSessionValue('auth_token', data.accessToken);
+    if (data.refreshToken) {
+      setSessionValue('refresh_token', data.refreshToken);
     }
     return data;
   },
 
-  logout: async (): Promise<void> => {
-    const token = localStorage.getItem('auth_token');
-    if (token) {
-      try {
-        await apiCall(ENDPOINTS.AUTH.LOGOUT, { method: 'POST' });
-      } catch (error) {
-        console.error('Error en logout:', error);
-      }
-    }
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('refresh_token');
+  verifyEmail: async (token: string): Promise<ApiMessageResponse> => {
+    const query = `?token=${encodeURIComponent(token)}`;
+    return apiCall<ApiMessageResponse>(`${ENDPOINTS.AUTH.VERIFY_EMAIL}${query}`, {
+      method: 'GET',
+    });
   },
 
-  refresh: async (): Promise<AuthResponse> => {
-    const refreshToken = localStorage.getItem('refresh_token');
+  forgotPassword: async (email: string): Promise<ApiMessageResponse> => {
+    return apiCall<ApiMessageResponse>(ENDPOINTS.AUTH.FORGOT_PASSWORD, {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  },
+
+  resetPassword: async (token: string, newPassword: string): Promise<ApiMessageResponse> => {
+    return apiCall<ApiMessageResponse>(ENDPOINTS.AUTH.RESET_PASSWORD, {
+      method: 'POST',
+      body: JSON.stringify({ token, newPassword }),
+    });
+  },
+
+  logout: async (): Promise<void> => {
+    const refreshToken = getSessionValue('refresh_token');
+    try {
+      await apiCall(ENDPOINTS.AUTH.LOGOUT, {
+        method: 'POST',
+        body: JSON.stringify({ refreshToken }),
+      });
+    } catch (error) {
+      console.error('Error en logout:', error);
+    }
+    removeSessionValue('auth_token');
+    removeSessionValue('refresh_token');
+  },
+
+  refresh: async (): Promise<RefreshTokenResponse> => {
+    const refreshToken = getSessionValue('refresh_token');
     if (!refreshToken) throw new Error('No refresh token');
 
     const response = await fetch(`${API_BASE_URL}${ENDPOINTS.AUTH.REFRESH}`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${refreshToken}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
     });
 
     if (!response.ok) throw new Error('Token refresh failed');
 
-    const data: AuthResponse = await response.json();
-    localStorage.setItem('auth_token', data.access_token);
+    const data: RefreshTokenResponse = await response.json();
+    setSessionValue('auth_token', data.accessToken);
+    if (data.refreshToken) {
+      setSessionValue('refresh_token', data.refreshToken);
+    }
     return data;
   },
 };
@@ -214,8 +495,23 @@ export const auth = {
 // =====================================
 
 export const students = {
-  list: async (page = 1, limit = 20): Promise<{ data: Student[]; total: number; page: number }> => {
-    return apiCall(`${ENDPOINTS.STUDENTS.LIST}?page=${page}&limit=${limit}`, { method: 'GET' });
+  list: async ({
+    status,
+    search,
+    page = 1,
+    limit = 20,
+  }: {
+    status?: 'activo' | 'pendiente' | 'baja';
+    search?: string;
+    page?: number;
+    limit?: number;
+  } = {}): Promise<StudentsListResponse> => {
+    const params = new URLSearchParams();
+    if (status) params.append('status', status);
+    if (search) params.append('search', search);
+    params.append('page', String(page));
+    params.append('limit', String(limit));
+    return apiCall(`${ENDPOINTS.STUDENTS.LIST}?${params.toString()}`, { method: 'GET' });
   },
 
   create: async (student: Partial<Student>): Promise<Student> => {
@@ -225,7 +521,7 @@ export const students = {
     });
   },
 
-  getById: async (id: string): Promise<Student & { subjects?: any[]; ailments?: any[] }> => {
+  getById: async (id: string): Promise<StudentDetailResponse> => {
     return apiCall(ENDPOINTS.STUDENTS.GET_BY_ID(id), { method: 'GET' });
   },
 
@@ -236,7 +532,7 @@ export const students = {
     });
   },
 
-  delete: async (id: string): Promise<void> => {
+  delete: async (id: string): Promise<StudentDeleteResponse> => {
     return apiCall(ENDPOINTS.STUDENTS.DELETE(id), { method: 'DELETE' });
   },
 };
@@ -246,11 +542,18 @@ export const students = {
 // =====================================
 
 export const subjects = {
-  list: async (): Promise<{ data: Subject[] }> => {
-    return apiCall(ENDPOINTS.SUBJECTS.LIST, { method: 'GET' });
+  list: async (filters: SubjectFilters = {}): Promise<Subject[]> => {
+    const params = new URLSearchParams();
+    if (filters.status) params.append('status', filters.status);
+    if (filters.search) params.append('search', filters.search);
+
+    const query = params.toString();
+    const endpoint = query ? `${ENDPOINTS.SUBJECTS.LIST}?${query}` : ENDPOINTS.SUBJECTS.LIST;
+
+    return apiCall(endpoint, { method: 'GET' });
   },
 
-  create: async (subject: Partial<Subject>): Promise<Subject> => {
+  create: async (subject: CreateSubjectPayload): Promise<Subject> => {
     return apiCall(ENDPOINTS.SUBJECTS.CREATE, {
       method: 'POST',
       body: JSON.stringify(subject),
@@ -261,7 +564,7 @@ export const subjects = {
     return apiCall(ENDPOINTS.SUBJECTS.GET_BY_ID(id), { method: 'GET' });
   },
 
-  update: async (id: string, data: Partial<Subject>): Promise<Subject> => {
+  update: async (id: string, data: UpdateSubjectPayload): Promise<Subject> => {
     return apiCall(ENDPOINTS.SUBJECTS.UPDATE(id), {
       method: 'PATCH',
       body: JSON.stringify(data),
@@ -282,7 +585,7 @@ export const ailments = {
     return apiCall(ENDPOINTS.AILMENTS.LIST, { method: 'GET' });
   },
 
-  create: async (ailment: Partial<Ailment>): Promise<Ailment> => {
+  create: async (ailment: CreateAilmentPayload): Promise<Ailment> => {
     return apiCall(ENDPOINTS.AILMENTS.CREATE, {
       method: 'POST',
       body: JSON.stringify(ailment),
@@ -310,26 +613,32 @@ export const ailments = {
 // =====================================
 
 export const users = {
-  list: async (): Promise<{ data: User[] }> => {
-    return apiCall(ENDPOINTS.USERS.LIST, { method: 'GET' });
+  list: async (): Promise<User[]> => {
+    return apiCall(ENDPOINTS.USERS.LIST, { method: 'GET' }) as Promise<User[]>;
   },
 
-  create: async (user: Partial<User> & { password: string }): Promise<User> => {
+  create: async (user: CreateUserPayload): Promise<User> => {
     return apiCall(ENDPOINTS.USERS.CREATE, {
       method: 'POST',
       body: JSON.stringify(user),
-    });
+    }) as Promise<User>;
   },
 
   getCurrentUser: async (): Promise<User> => {
-    return apiCall(ENDPOINTS.USERS.GET_CURRENT, { method: 'GET' });
+    const stored = getSessionValue('user_data');
+    if (!stored) throw new Error('No hay datos de usuario');
+    const { id } = JSON.parse(stored) as { id: string };
+    const allUsers = await apiCall(ENDPOINTS.USERS.LIST, { method: 'GET' }) as User[];
+    const found = Array.isArray(allUsers) ? allUsers.find(u => u.id === id) : undefined;
+    if (!found) throw new Error('Usuario no encontrado');
+    return found;
   },
 
-  update: async (id: string, data: Partial<User>): Promise<User> => {
+  update: async (id: string, data: UpdateUserPayload): Promise<User> => {
     return apiCall(ENDPOINTS.USERS.UPDATE(id), {
       method: 'PATCH',
       body: JSON.stringify(data),
-    });
+    }) as Promise<User>;
   },
 };
 
@@ -342,7 +651,7 @@ export const studentAilments = {
     return apiCall(ENDPOINTS.STUDENT_AILMENTS.LIST(studentId), { method: 'GET' });
   },
 
-  create: async (data: { student_id: string; ailment_id: string; notes?: string }): Promise<StudentAilment> => {
+  create: async (data: { studentId: string; ailmentId: string; status?: string; diagnosisDate?: string; notes?: string }): Promise<StudentAilment> => {
     return apiCall(ENDPOINTS.STUDENT_AILMENTS.CREATE, {
       method: 'POST',
       body: JSON.stringify(data),
@@ -366,15 +675,15 @@ export const studentAilments = {
 // =====================================
 
 export const studentSubjects = {
-  list: async (studentId: string): Promise<{ data: any[] }> => {
-    return apiCall(ENDPOINTS.STUDENT_SUBJECTS.LIST(studentId), { method: 'GET' });
+  list: async (studentId: string): Promise<object[]> => {
+    return apiCall(ENDPOINTS.STUDENT_SUBJECTS.LIST(studentId), { method: 'GET' }) as Promise<object[]>;
   },
 
-  create: async (data: { student_id: string; subject_id: string }): Promise<any> => {
+  create: async (data: { studentId: string; subjectId: string; grade?: string; status?: string }): Promise<object> => {
     return apiCall(ENDPOINTS.STUDENT_SUBJECTS.CREATE, {
       method: 'POST',
       body: JSON.stringify(data),
-    });
+    }) as Promise<object>;
   },
 
   delete: async (id: string): Promise<void> => {
@@ -419,26 +728,15 @@ export const enrollments = {
 // =====================================
 
 export const documents = {
-  list: async (studentId?: string): Promise<{ data: Document[] }> => {
+  list: async (studentId?: string): Promise<Document[]> => {
     return apiCall(ENDPOINTS.DOCUMENTS.LIST(studentId), { method: 'GET' });
   },
 
-  upload: async (formData: FormData): Promise<Document> => {
-    const token = localStorage.getItem('auth_token');
-    const response = await fetch(`${API_BASE_URL}${ENDPOINTS.DOCUMENTS.UPLOAD}`, {
+  upload: async (payload: CreateDocumentPayload): Promise<Document> => {
+    return apiCall(ENDPOINTS.DOCUMENTS.UPLOAD, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-      body: formData,
+      body: JSON.stringify(payload),
     });
-
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Error en carga de documento');
-    }
-
-    return response.json();
   },
 
   delete: async (id: string): Promise<void> => {
@@ -451,8 +749,8 @@ export const documents = {
 // =====================================
 
 export const dashboard = {
-  getStats: async (fromDate?: string, toDate?: string): Promise<any> => {
-    return apiCall(ENDPOINTS.DASHBOARD.STATS(fromDate, toDate), { method: 'GET' });
+  getStats: async (fromDate?: string, toDate?: string): Promise<object> => {
+    return apiCall(ENDPOINTS.DASHBOARD.STATS(fromDate, toDate), { method: 'GET' }) as Promise<object>;
   },
 };
 

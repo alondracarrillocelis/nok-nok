@@ -1,17 +1,20 @@
 import { useState } from 'react';
 import { Upload, FileText, X } from 'lucide-react';
+import { showToast } from './Toast';
 
 interface DragDropUploadProps {
   onFilesSelected: (files: File[]) => void;
   accept?: string;
   maxFiles?: number;
+  maxFileSizeMB?: number;
   label?: string;
 }
 
 export default function DragDropUpload({
   onFilesSelected,
-  accept = '.csv,.xlsx,.xls',
-  maxFiles = 5,
+  accept = '.pdf',
+  maxFiles = 20,
+  maxFileSizeMB = 10,
   label = 'Arrastra archivos aquí o haz clic para seleccionar',
 }: DragDropUploadProps) {
   const [isDragging, setIsDragging] = useState(false);
@@ -49,13 +52,28 @@ export default function DragDropUpload({
   };
 
   const processFiles = (newFiles: File[]) => {
-    const validFiles = newFiles.filter(file => {
+    const validTypeFiles = newFiles.filter(file => {
       const ext = '.' + file.name.split('.').pop()?.toLowerCase();
       return accept.includes(ext);
     });
 
+    if (validTypeFiles.length !== newFiles.length) {
+      showToast(`Solo se permiten archivos ${accept.toUpperCase()}`, 'error');
+    }
+
+    const maxBytes = maxFileSizeMB * 1024 * 1024;
+    const validFiles = validTypeFiles.filter((file) => file.size <= maxBytes);
+
+    if (validFiles.length !== validTypeFiles.length) {
+      showToast(`Cada archivo debe pesar máximo ${maxFileSizeMB}MB`, 'error');
+    }
+
     if (validFiles.length + files.length > maxFiles) {
-      alert(`Máximo ${maxFiles} archivos permitidos`);
+      showToast(`Máximo ${maxFiles} archivos permitidos`, 'error');
+      return;
+    }
+
+    if (validFiles.length === 0) {
       return;
     }
 
@@ -86,7 +104,7 @@ export default function DragDropUpload({
         <Upload className="mx-auto mb-3 text-green-500" size={32} />
         <p className="text-sm font-medium text-gray-700 mb-1">{label}</p>
         <p className="text-xs text-gray-500 mb-4">
-          Formatos: CSV, XLSX, XLS (Máximo {maxFiles} archivos)
+          Formatos: {accept.toUpperCase()} (Máximo {maxFiles} archivos, {maxFileSizeMB}MB c/u)
         </p>
         <input
           type="file"

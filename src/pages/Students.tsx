@@ -1,23 +1,21 @@
-import { useEffect, useState, useRef } from 'react';
-import { Search, Plus, MoreVertical, Eye, X, Download, FileText, ChevronLeft, ChevronRight, Edit2, Trash2, BookOpen, Trash } from 'lucide-react';
-import { students, studentSubjects, studentAilments, documents } from '../lib/api';
+import { useEffect, useState, useRef, lazy, Suspense } from 'react';
+import { Search, Plus, MoreVertical, Eye, X, Edit2, Trash2, BookOpen, Trash, RefreshCw, Bot } from 'lucide-react';
+import { students as studentsApi, StudentDetailResponse } from '../lib/api';
 import Layout from '../components/Layout';
-import AddStudentModal from '../components/AddStudentModal';
-import EditStudentModal from '../components/EditStudentModal';
+const AddStudentModal = lazy(() => import('../components/AddStudentModal'));
+const EditStudentModal = lazy(() => import('../components/EditStudentModal'));
 import ConfirmationModal from '../components/ConfirmationModal';
 import { showToast } from '../components/Toast';
 
 interface Student {
   id: string;
-  first_name: string;
-  paternal_surname: string;
-  maternal_surname: string;
-  enrollment_number: string;
-  current_level: string;
-  enrollment_date: string;
+  firstName: string;
+  paternalSurname: string;
+  maternalSurname: string | null;
+  enrollmentNumber: string;
+  currentLevel?: string | null;
+  enrollmentDate?: string | null;
   status: 'activo' | 'pendiente' | 'baja';
-  emergency_contact_name?: string | null;
-  emergency_contact_phone?: string | null;
 }
 
 interface Tutor {
@@ -42,17 +40,39 @@ interface DocumentFile {
 }
 
 interface DetailedStudent extends Student {
+  birthDate?: string | null;
+  currentGrade?: string | null;
+  program?: string | null;
+  shift?: string | null;
+  representative?: string | null;
+  curp?: string | null;
   tutors?: Tutor[];
   subjects?: SubjectShort[];
   documents?: DocumentFile[];
+  ailments?: Array<{
+    id: string;
+    name: string;
+    severity?: string;
+    medication?: string;
+  }>;
 }
 
 export default function Students() {
+  const getPreviousMonthValue = () => {
+    const now = new Date();
+    const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    return `${previousMonth.getFullYear()}-${String(previousMonth.getMonth() + 1).padStart(2, '0')}`;
+  };
+
   const [students, setStudents] = useState<Student[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [enrollmentDateFilter, setEnrollmentDateFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'activo' | 'pendiente' | 'baja'>('all');
+  const [enrollmentMonthFilter, setEnrollmentMonthFilter] = useState<string>('');
+  const [page, setPage] = useState(1);
+  const [limit] = useState(20);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalStudents, setTotalStudents] = useState(0);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
@@ -77,7 +97,8 @@ export default function Students() {
 
   useEffect(() => {
     fetchStudents();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusFilter, searchTerm, page, limit]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -94,37 +115,33 @@ export default function Students() {
   }, [selectedStudent]);
 
   useEffect(() => {
-    filterStudents();
+    applyEnrollmentDateFilter();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [students, searchTerm, statusFilter, enrollmentDateFilter]);
+  }, [students, enrollmentMonthFilter]);
 
   const fetchStudents = async () => {
     try {
-      const response = await students.list();
+      const response = await studentsApi.list({
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        search: searchTerm.trim() || undefined,
+        page,
+        limit,
+      });
       setStudents(response.data);
+      setTotalPages(response.pagination?.totalPages || 1);
+      setTotalStudents(response.pagination?.total || response.data.length || 0);
     } catch (error) {
       console.error('Error fetching students:', error);
-      showToast('Error al cargar alumnos', 'error');
+      const message = error instanceof Error ? error.message : 'Error al cargar alumnos';
+      showToast(message, 'error');
     }
   };
 
-  const filterStudents = () => {
+  const applyEnrollmentDateFilter = () => {
     let filtered = students;
 
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(s => s.status === statusFilter);
-    }
-
-    if (searchTerm) {
-      filtered = filtered.filter(s =>
-        `${s.first_name} ${s.paternal_surname} ${s.maternal_surname}`
-          .toLowerCase()
-          .includes(searchTerm.toLowerCase())
-      );
-    }
-
-    if (enrollmentDateFilter) {
-      filtered = filtered.filter(s => s.enrollment_date.startsWith(enrollmentDateFilter));
+    if (enrollmentMonthFilter) {
+      filtered = filtered.filter(s => s.enrollmentDate?.startsWith(enrollmentMonthFilter));
     }
 
     setFilteredStudents(filtered);
@@ -153,8 +170,20 @@ export default function Students() {
     }
   };
 
+  const getStatusLabel = (status: Student['status']) => {
+    switch (status) {
+      case 'activo':
+        return 'Activo';
+      case 'pendiente':
+        return 'Pendiente';
+      case 'baja':
+        return 'Baja';
+      default:
+        return status;
+    }
+  };
+
   const handleToggleStudent = async (student: Student) => {
-    // toggle: si es el mismo, cerrar
     if (selectedStudent && selectedStudent.id === student.id) {
       setSelectedStudent(null);
       setCurrentDetailTab('info');
@@ -163,43 +192,44 @@ export default function Students() {
 
     setCurrentDetailTab('info');
     try {
-      // fetch base student with details
-      const stuData = await students.getById(student.id);
-
-      // fetch student_subjects
-      const subjectsResponse = await studentSubjects.list(student.id);
-      let subjects: SubjectShort[] = [];
-      if (subjectsResponse.data && subjectsResponse.data.length > 0) {
-        subjects = subjectsResponse.data.map((ss: any) => ({
-          id: ss.subject.id,
-          name: ss.subject.name,
-          code: ss.subject.code,
-        }));
-      }
-
-      // fetch documents
-      const docsResponse = await documents.list(student.id);
-      const docs: DocumentFile[] = docsResponse.data.map((d: any) => ({
-        id: d.id,
-        document_type: d.file_type,
-        file_name: d.file_name,
-        file_url: d.file_url,
-        uploaded_at: d.uploaded_at,
-      }));
+      const stuData: StudentDetailResponse = await studentsApi.getById(student.id);
 
       const detailed: DetailedStudent = {
-        ...(stuData || student),
-        tutors: [],
-        subjects: subjects,
-        documents: docs,
+        ...student,
+        ...stuData,
+        tutors: (stuData.tutors || []).map((tutor) => ({
+          id: tutor.id,
+          name: tutor.name,
+          phone: tutor.phone || undefined,
+          email: tutor.email || undefined,
+        })),
+        subjects: (stuData.subjects || []).map((item) => ({
+          id: item.subject.id,
+          name: item.subject.name,
+          code: item.subject.code,
+        })),
+        documents: (stuData.documents || []).map((doc) => ({
+          id: doc.id,
+          document_type: doc.documentType,
+          file_name: doc.fileName,
+          file_url: doc.fileUrl,
+          uploaded_at: doc.uploadedAt,
+        })),
+        ailments: (stuData.ailments || []).map((item) => ({
+          id: item.id,
+          name: item.ailment?.name || 'Padecimiento',
+          severity: item.ailment?.severity,
+          medication: item.ailment?.medication,
+        })),
       };
 
       setSelectedStudent(detailed);
-      setCurrentDetailTab('tutores');
+      setCurrentDetailTab('info');
       setOpenMenuId(null);
     } catch (error) {
       console.error('Error fetching student details:', error);
-      showToast('Error al cargar detalles del alumno', 'error');
+      const message = error instanceof Error ? error.message : 'Error al cargar detalles del alumno';
+      showToast(message, 'error');
     }
   };
 
@@ -214,12 +244,12 @@ export default function Students() {
         message: `Confirma que deseas guardar los cambios de ${studentName}. Los datos serán actualizados en la base de datos.`,
       },
       delete: {
-        title: 'Eliminar Alumno',
-        message: `¿Estás seguro de que deseas eliminar a ${studentName}? Esta acción no se puede deshacer.`,
+        title: 'Dar de baja alumno',
+        message: `¿Deseas confirmar la baja de ${studentName}? El alumno conservará su historial y cambiará a estado de baja.`,
       },
       'delete-multiple': {
-        title: 'Eliminar Múltiples Alumnos',
-        message: `¿Estás seguro de que deseas eliminar ${selectedStudents.size} alumno(s)? Esta acción no se puede deshacer.`,
+        title: 'Dar de baja alumnos',
+        message: `¿Deseas confirmar la baja de ${selectedStudents.size} alumno(s)? El historial permanecerá disponible.`,
       },
     };
 
@@ -240,19 +270,20 @@ export default function Students() {
     showConfirmation('delete', async () => {
       setIsConfirmLoading(true);
       try {
-        await students.delete(studentId);
-        showToast('Alumno/a eliminado exitosamente', 'success');
+        await studentsApi.delete(studentId);
+        showToast('Alumno/a dado de baja exitosamente', 'success');
         fetchStudents();
         setSelectedStudent(null);
         setOpenMenuId(null);
         setConfirmationModal(prev => ({ ...prev, isOpen: false }));
       } catch (error) {
         console.error('Error deleting student:', error);
-        showToast('Error al eliminar el alumno', 'error');
+        const message = error instanceof Error ? error.message : 'Error al eliminar el alumno';
+        showToast(message, 'error');
       } finally {
         setIsConfirmLoading(false);
       }
-    }, `${student.first_name} ${student.paternal_surname}`);
+    }, `${student.firstName} ${student.paternalSurname}`);
   };
 
   const handleDeleteMultiple = async () => {
@@ -263,15 +294,16 @@ export default function Students() {
       try {
         const idsArray = Array.from(selectedStudents);
         for (const id of idsArray) {
-          await students.delete(id);
+          await studentsApi.delete(id);
         }
-        showToast(`${selectedStudents.size} alumno(s) eliminado(s) exitosamente`, 'success');
+        showToast(`${selectedStudents.size} alumno(s) dado(s) de baja exitosamente`, 'success');
         fetchStudents();
         setSelectedStudents(new Set());
         setConfirmationModal(prev => ({ ...prev, isOpen: false }));
       } catch (error) {
         console.error('Error deleting students:', error);
-        showToast('Error al eliminar alumnos', 'error');
+        const message = error instanceof Error ? error.message : 'Error al eliminar alumnos';
+        showToast(message, 'error');
       } finally {
         setIsConfirmLoading(false);
       }
@@ -302,58 +334,85 @@ export default function Students() {
     <Layout>
       <div className="space-y-6 relative">
         {selectedStudent && (
-          <div ref={cardRef} className="absolute top-24 right-8 bg-white p-6 rounded-xl shadow-2xl z-20 w-full max-w-2xl max-h-[70vh] overflow-hidden flex flex-col">
+          <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/35 backdrop-blur-sm p-4">
+            <div ref={cardRef} className="w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-[28px] border border-emerald-100/80 bg-white/95 shadow-2xl ring-1 ring-blue-100 flex flex-col">
             {/* Header */}
-            <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-200">
+            <div className="flex justify-between items-start mb-4 p-6 pb-4 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-blue-50">
               <div>
-                <h3 className="font-bold text-lg text-gray-800">
-                  {selectedStudent.first_name} {selectedStudent.paternal_surname}
+                <p className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Ficha del Alumno</p>
+                <h3 className="font-black text-2xl text-gray-900 mt-1">
+                  {selectedStudent.firstName} {selectedStudent.paternalSurname}
                 </h3>
-                <p className="text-xs text-gray-500">Matrícula: {selectedStudent.enrollment_number}</p>
+                <p className="text-sm text-gray-600 mt-1">Matrícula: <span className="font-semibold text-gray-800">{selectedStudent.enrollmentNumber}</span></p>
               </div>
               <button
                 onClick={() => {
                   setSelectedStudent(null);
                   setCurrentDetailTab('info');
                 }}
-                className="text-gray-500 hover:text-gray-700 p-1"
+                className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-white/80"
               >
                 <X size={20} />
               </button>
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto px-6 pb-2">
               {currentDetailTab === 'info' && (
-                <div className="space-y-3">
-                  <div>
-                    <p>Nombre Completo: {selectedStudent.first_name} {selectedStudent.paternal_surname} {selectedStudent.maternal_surname}</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-2xl p-4 border border-blue-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase">Nombre completo</p>
+                    <p className="text-sm font-medium text-gray-800 mt-1">{selectedStudent.firstName} {selectedStudent.paternalSurname} {selectedStudent.maternalSurname}</p>
                   </div>
-                  <div>
-                    <p>Matrícula: {selectedStudent.enrollment_number}</p>
+                  <div className="bg-gradient-to-br from-slate-50 to-emerald-50 rounded-2xl p-4 border border-emerald-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase">Matrícula</p>
+                    <p className="text-sm font-medium text-gray-800 mt-1">{selectedStudent.enrollmentNumber}</p>
                   </div>
-                  <div>
-                    <p>Nivel: {selectedStudent.current_level}</p>
+                  <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-2xl p-4 border border-blue-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase">Nivel</p>
+                    <p className="text-sm font-medium text-gray-800 mt-1">{selectedStudent.currentLevel || '—'}</p>
                   </div>
-                  <div>
-                    <p>Estado: {selectedStudent.status}</p>
+                  <div className="bg-gradient-to-br from-slate-50 to-amber-50 rounded-2xl p-4 border border-amber-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase">Estado</p>
+                    <p className="text-sm font-medium text-gray-800 mt-1">{getStatusLabel(selectedStudent.status)}</p>
                   </div>
-                  <div>
-                    <p>Fecha de Inscripción: {new Date(selectedStudent.enrollment_date).toLocaleDateString('es-ES', { 
-                      weekday: 'long', 
-                      year: 'numeric', 
-                      month: 'long', 
-                      day: 'numeric' 
-                    })}</p>
+                  <div className="bg-gradient-to-br from-slate-50 to-cyan-50 rounded-2xl p-4 border border-cyan-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase">Género</p>
+                    <p className="text-sm font-medium text-gray-800 mt-1">—</p>
                   </div>
-                  {(selectedStudent.emergency_contact_name || selectedStudent.emergency_contact_phone) && (
-                    <div>
-                      <p>Contacto de emergencia: {selectedStudent.emergency_contact_name || '—'}</p>
-                      {selectedStudent.emergency_contact_phone && (
-                        <p>Teléfono: {selectedStudent.emergency_contact_phone}</p>
-                      )}
-                    </div>
-                  )}
+                  <div className="bg-gradient-to-br from-slate-50 to-violet-50 rounded-2xl p-4 border border-violet-100 md:col-span-2">
+                    <p className="text-xs font-semibold text-gray-500 uppercase">Fecha de Inscripción</p>
+                    <p className="text-sm font-medium text-gray-800 mt-1">{selectedStudent.enrollmentDate ? new Date(selectedStudent.enrollmentDate).toLocaleDateString('es-ES', {
+                      weekday: 'long',
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    }) : '—'}</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-slate-50 to-emerald-50 rounded-2xl p-4 border border-emerald-100 md:col-span-2">
+                    <p className="text-xs font-semibold text-gray-500 uppercase">Contacto de emergencia</p>
+                    <p className="text-sm font-medium text-gray-800 mt-1">{selectedStudent.tutors && selectedStudent.tutors.length > 0 ? selectedStudent.tutors[0].name : 'Sin contacto registrado'}</p>
+                    <p className="text-sm text-gray-700 mt-1">Teléfono: {selectedStudent.tutors && selectedStudent.tutors.length > 0 ? selectedStudent.tutors[0].phone || '—' : '—'}</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-slate-50 to-rose-50 rounded-2xl p-4 border border-rose-100 md:col-span-2">
+                    <p className="text-xs font-semibold text-gray-500 uppercase">Padecimientos</p>
+                    {selectedStudent.ailments && selectedStudent.ailments.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {selectedStudent.ailments.map((ailment) => (
+                          <span key={ailment.id} className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white px-3 py-1.5 text-xs font-medium text-rose-700 shadow-sm">
+                            <span>{ailment.name}</span>
+                            {(ailment.severity || ailment.medication) && (
+                              <span className="text-rose-500">
+                                {ailment.severity || ailment.medication}
+                              </span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-600 mt-2">Sin padecimientos registrados</p>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -361,13 +420,13 @@ export default function Students() {
                 <div className="space-y-3">
                   {selectedStudent.tutors && selectedStudent.tutors.length > 0 ? (
                     selectedStudent.tutors.map((tutor) => (
-                      <div key={tutor.id}>
-                        <p>{tutor.name}</p>
+                      <div key={tutor.id} className="rounded-xl border border-gray-200 p-3 bg-gray-50">
+                        <p className="font-medium text-gray-800">{tutor.name}</p>
                       </div>
                     ))
                   ) : (
-                    <div>
-                      <p>No hay tutores asignados</p>
+                    <div className="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500">
+                      No hay tutores asignados
                     </div>
                   )}
                 </div>
@@ -377,13 +436,14 @@ export default function Students() {
                 <div className="space-y-2">
                   {selectedStudent.subjects && selectedStudent.subjects.length > 0 ? (
                     selectedStudent.subjects.map((subject) => (
-                      <div key={subject.id}>
-                        <p>{subject.name} - {subject.code}</p>
+                      <div key={subject.id} className="rounded-xl border border-gray-200 p-3 bg-gray-50 flex items-center justify-between">
+                        <p className="font-medium text-gray-800">{subject.name}</p>
+                        <span className="text-xs text-gray-500">{subject.code}</span>
                       </div>
                     ))
                   ) : (
-                    <div>
-                      <p>No hay materias asignadas</p>
+                    <div className="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500">
+                      No hay programas asignados
                     </div>
                   )}
                 </div>
@@ -393,14 +453,15 @@ export default function Students() {
                 <div className="space-y-2">
                   {selectedStudent.documents && selectedStudent.documents.length > 0 ? (
                     selectedStudent.documents.map((doc) => (
-                      <div key={doc.id}>
-                        <p>{doc.file_name} - {doc.document_type || 'Archivo'}</p>
-                        <a href={doc.file_url} target="_blank" rel="noopener noreferrer">Descargar</a>
+                      <div key={doc.id} className="rounded-xl border border-gray-200 p-3 bg-gray-50">
+                        <p className="text-sm font-medium text-gray-800">{doc.file_name}</p>
+                        <p className="text-xs text-gray-500 mt-1">{doc.document_type || 'Archivo'}</p>
+                        <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline mt-2 inline-block">Descargar</a>
                       </div>
                     ))
                   ) : (
-                    <div>
-                      <p>No hay documentos</p>
+                    <div className="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500">
+                      No hay documentos
                     </div>
                   )}
                 </div>
@@ -408,78 +469,89 @@ export default function Students() {
             </div>
 
             {/* Navigation Tabs */}
-            <div className="mt-4 pt-4 border-t border-gray-200 flex items-center justify-between">
+            <div className="mt-4 p-6 pt-4 border-t border-emerald-100 flex items-center justify-between bg-white">
               <button
                 onClick={() => handleNavigateTab('prev')}
                 disabled={currentDetailTab === 'info'}
-                className="p-2 hover:bg-gray-100 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="text-sm text-gray-700 hover:text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Sección anterior"
               >
-                <ChevronLeft size={20} className="text-gray-600" />
+                Anterior
               </button>
 
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => setCurrentDetailTab('info')}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                  className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
                     currentDetailTab === 'info'
-                      ? 'bg-blue-500 text-white'
+                      ? 'bg-green-600 text-white'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
-                  ℹ️ Info
+                  Info
                 </button>
                 <button
                   onClick={() => setCurrentDetailTab('tutores')}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                  className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
                     currentDetailTab === 'tutores'
-                      ? 'bg-blue-500 text-white'
+                      ? 'bg-green-600 text-white'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
-                  👨‍🏫 Tutores
+                  Tutores
                 </button>
                 <button
                   onClick={() => setCurrentDetailTab('materias')}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                  className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
                     currentDetailTab === 'materias'
-                      ? 'bg-blue-500 text-white'
+                      ? 'bg-green-600 text-white'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
-                  📚 Materias
+                  Programas
                 </button>
                 <button
                   onClick={() => setCurrentDetailTab('documentos')}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                  className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
                     currentDetailTab === 'documentos'
-                      ? 'bg-blue-500 text-white'
+                      ? 'bg-green-600 text-white'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
-                  📄 Docs
+                  Documentos
                 </button>
               </div>
 
               <button
                 onClick={() => handleNavigateTab('next')}
                 disabled={currentDetailTab === 'documentos'}
-                className="p-2 hover:bg-gray-100 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="text-sm text-gray-700 hover:text-gray-900 disabled:opacity-50 disabled:cursor-not-allowed"
                 title="Siguiente sección"
               >
-                <ChevronRight size={20} className="text-gray-600" />
+                Siguiente
               </button>
+            </div>
             </div>
           </div>
         )}
         <div className="flex items-center justify-between">
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center space-x-2 bg-green-500 text-white px-6 py-3 rounded-full font-semibold hover:bg-green-600 transition-colors shadow-lg"
-          >
-            <Plus size={20} />
-            <span>Agregar Alumno/a</span>
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center space-x-2 bg-green-500 text-white px-6 py-3 rounded-full font-semibold hover:bg-green-600 transition-colors shadow-lg"
+            >
+              <Plus size={20} />
+              <span>Agregar Alumno/a</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => fetchStudents()}
+              className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-3 rounded-full font-semibold hover:bg-gray-50 transition-colors"
+            >
+              <RefreshCw size={18} />
+              Recargar
+            </button>
+          </div>
 
           <div className="flex items-center space-x-4">
             <div className="relative">
@@ -487,18 +559,35 @@ export default function Students() {
                 type="text"
                 placeholder="Buscar"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setPage(1);
+                  setSearchTerm(e.target.value);
+                }}
                 className="pl-10 pr-4 py-2 rounded-full bg-white border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500"
               />
               <Search className="absolute left-3 top-2.5 text-gray-400" size={20} />
             </div>
-            <div className="relative">
+            <div className="flex items-center gap-2">
               <input
-                type="date"
-                value={enrollmentDateFilter}
-                onChange={(e) => setEnrollmentDateFilter(e.target.value)}
+                type="month"
+                value={enrollmentMonthFilter}
+                onChange={(e) => setEnrollmentMonthFilter(e.target.value)}
                 className="px-4 py-2 rounded-full bg-white border border-gray-200 focus:outline-none focus:ring-2 focus:ring-green-500"
               />
+              <button
+                type="button"
+                onClick={() => setEnrollmentMonthFilter(getPreviousMonthValue())}
+                className="px-4 py-2 rounded-full bg-white border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Mes pasado
+              </button>
+              <button
+                type="button"
+                onClick={() => setEnrollmentMonthFilter('')}
+                className="px-4 py-2 rounded-full bg-white border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                Limpiar
+              </button>
             </div>
           </div>
         </div>
@@ -546,9 +635,6 @@ export default function Students() {
                     Fecha de Inscripción
                   </th>
                   <th className="px-6 py-4 text-left text-sm font-bold text-gray-700 uppercase">
-                    Tipo de Inscripción
-                  </th>
-                  <th className="px-6 py-4 text-left text-sm font-bold text-gray-700 uppercase">
                     Tutor
                   </th>
                   <th className="px-6 py-4 text-left text-sm font-bold text-gray-700 uppercase">
@@ -557,7 +643,16 @@ export default function Students() {
                 </tr>
               </thead>
               <tbody>
-                {filteredStudents.map((student) => (
+                {filteredStudents.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                      {totalStudents > 0
+                        ? 'No hay alumnos que coincidan con los filtros actuales.'
+                        : 'No hay alumnos registrados todavía.'}
+                    </td>
+                  </tr>
+                ) : (
+                  filteredStudents.map((student) => (
                   <tr
                     key={student.id}
                     className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
@@ -572,38 +667,43 @@ export default function Students() {
                     </td>
                     <td className="px-6 py-4">
                       <div>
-                        <div className="font-semibold text-blue-600">
-                          {student.first_name} {student.paternal_surname}
+                        <div className="font-semibold text-blue-600 flex items-center gap-2">
+                          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                            <Bot size={16} />
+                          </span>
+                          <span>
+                          {student.firstName} {student.paternalSurname}
+                          </span>
                           <button
                             onClick={() => handleToggleStudent(student)}
                             title="Ver detalles"
-                            aria-label={`Ver detalles de ${student.first_name} ${student.paternal_surname}`}
+                            aria-label={`Ver detalles de ${student.firstName} ${student.paternalSurname}`}
                             className="inline-flex items-center justify-center ml-2 p-1 rounded hover:bg-green-50 text-green-600 hover:text-green-800 cursor-pointer"
                           >
                             <Eye size={18} />
                           </button>
                         </div>
                         <div className="text-sm text-gray-500">
-                          {student.enrollment_number}
+                          {student.enrollmentNumber}
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 text-gray-700">
-                      {student.current_level || 'Principiante'}
+                      {student.currentLevel || 'Principiante'}
                     </td>
                     <td className="px-6 py-4 text-gray-700">
-                      {new Date(student.enrollment_date).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(student.status)}`}>
-                        {student.status}
-                      </span>
+                      <div className="space-y-2">
+                        <div>{student.enrollmentDate ? new Date(student.enrollmentDate).toLocaleDateString('es-MX') : '—'}</div>
+                        <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(student.status)}`}>
+                          {getStatusLabel(student.status)}
+                        </span>
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="text-blue-600 hover:underline cursor-pointer">
-                        Juan Díaz
+                        Sin tutor asignado
                       </div>
-                      <div className="text-sm text-gray-500">61H000000</div>
+                      <div className="text-sm text-gray-500">—</div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="relative">
@@ -635,39 +735,66 @@ export default function Students() {
                               className="w-full text-left px-4 py-2 hover:bg-green-50 flex items-center space-x-2 transition-colors text-gray-700 font-semibold border-b border-gray-100"
                             >
                               <BookOpen size={16} className="text-green-600" />
-                              <span>Asignar Materias</span>
+                              <span>Asignar Programas</span>
                             </button>
                             <button
                               onClick={() => handleDeleteStudent(student.id)}
                               className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center space-x-2 transition-colors text-red-700 font-semibold"
                             >
                               <Trash2 size={16} />
-                              <span>Eliminar</span>
+                              <span>Dar de baja</span>
                             </button>
                           </div>
                         )}
                       </div>
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         </div>
 
-        <div className="flex items-center justify-center space-x-4">
+        <div className="flex items-center justify-center gap-4">
           <button
-            onClick={() => setStatusFilter('all')}
+            onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+            disabled={page <= 1}
+            className="px-4 py-2 rounded-full border border-gray-300 text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Anterior
+          </button>
+          <span className="text-sm font-semibold text-gray-700">
+            Página {page} de {Math.max(totalPages, 1)}
+          </span>
+          <button
+            onClick={() => setPage((prev) => Math.min(totalPages || 1, prev + 1))}
+            disabled={page >= (totalPages || 1)}
+            className="px-4 py-2 rounded-full border border-gray-300 text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Siguiente
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-center gap-4">
+          <button
+            onClick={() => {
+              setPage(1);
+              setStatusFilter('all');
+            }}
             className={`px-6 py-2 rounded-full font-semibold transition-colors ${
               statusFilter === 'all'
                 ? 'bg-gray-200 text-gray-800'
                 : 'bg-white text-gray-600 hover:bg-gray-100'
             }`}
           >
-            Todos
+            Todos ({totalStudents})
           </button>
           <button
-            onClick={() => setStatusFilter('activo')}
+            onClick={() => {
+              setPage(1);
+              setStatusFilter('activo');
+            }}
             className={`px-6 py-2 rounded-full font-semibold transition-colors ${
               statusFilter === 'activo'
                 ? 'bg-green-500 text-white'
@@ -677,7 +804,10 @@ export default function Students() {
             Activo
           </button>
           <button
-            onClick={() => setStatusFilter('pendiente')}
+            onClick={() => {
+              setPage(1);
+              setStatusFilter('pendiente');
+            }}
             className={`px-6 py-2 rounded-full font-semibold transition-colors ${
               statusFilter === 'pendiente'
                 ? 'bg-yellow-500 text-white'
@@ -687,7 +817,10 @@ export default function Students() {
             Pendiente
           </button>
           <button
-            onClick={() => setStatusFilter('baja')}
+            onClick={() => {
+              setPage(1);
+              setStatusFilter('baja');
+            }}
             className={`px-6 py-2 rounded-full font-semibold transition-colors ${
               statusFilter === 'baja'
                 ? 'bg-red-500 text-white'
@@ -700,27 +833,31 @@ export default function Students() {
       </div>
 
       {showAddModal && (
-        <AddStudentModal
-          onClose={() => setShowAddModal(false)}
-          onSuccess={() => {
-            setShowAddModal(false);
-            fetchStudents();
-            showToast('Alumno/a agregado exitosamente', 'success');
-          }}
-        />
+        <Suspense fallback={<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"><div className="bg-white rounded-3xl p-8"><div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full" /></div></div>}>
+          <AddStudentModal
+            onClose={() => setShowAddModal(false)}
+            onSuccess={() => {
+              setShowAddModal(false);
+              fetchStudents();
+              showToast('Alumno/a agregado exitosamente', 'success');
+            }}
+          />
+        </Suspense>
       )}
 
       {editingStudentId && (
-        <EditStudentModal
-          studentId={editingStudentId}
-          onClose={() => setEditingStudentId(null)}
-          onSuccess={() => {
-            setEditingStudentId(null);
-            fetchStudents();
-            setSelectedStudent(null);
-            showToast('Alumno/a actualizado exitosamente', 'success');
-          }}
-        />
+        <Suspense fallback={<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"><div className="bg-white rounded-3xl p-8"><div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full" /></div></div>}>
+          <EditStudentModal
+            studentId={editingStudentId}
+            onClose={() => setEditingStudentId(null)}
+            onSuccess={() => {
+              setEditingStudentId(null);
+              fetchStudents();
+              setSelectedStudent(null);
+              showToast('Alumno/a actualizado exitosamente', 'success');
+            }}
+          />
+        </Suspense>
       )}
 
       <ConfirmationModal
@@ -735,7 +872,7 @@ export default function Students() {
         isLoading={isConfirmLoading}
         confirmText={
           confirmationModal.type === 'delete' || confirmationModal.type === 'delete-multiple'
-            ? 'Eliminar'
+            ? 'Confirmar baja'
             : confirmationModal.type === 'edit'
               ? 'Guardar'
               : 'Agregar'

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { auth } from '../lib/api';
+import { auth, sessionSettings } from '../lib/api';
 
 interface User {
   id: string;
@@ -11,9 +11,11 @@ interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  keepSession: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, name: string) => Promise<{ error: Error | null }>;
+  signUp: (firstName: string, paternalSurname: string, maternalSurname: string, email: string, password: string, phone: string, role: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
+  setKeepSession: (keep: boolean) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -21,15 +23,16 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [keepSession, setKeepSessionState] = useState<boolean>(sessionSettings.isPersistent());
 
   useEffect(() => {
     (async () => {
       try {
-        const token = localStorage.getItem('auth_token');
+        const token = sessionSettings.getValue('auth_token');
         if (token) {
           // Aquí podrías hacer una llamada para obtener el usuario actual
           // Por ahora asumimos que el usuario está autenticado
-          const userData = localStorage.getItem('user_data');
+          const userData = sessionSettings.getValue('user_data');
           if (userData) {
             setUser(JSON.parse(userData));
           }
@@ -49,28 +52,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userData = {
         id: response.user.id,
         email: response.user.email,
-        name: response.user.name || email,
+        name: response.user.email,
         role: response.user.role || 'user',
       };
       setUser(userData);
-      localStorage.setItem('user_data', JSON.stringify(userData));
+      sessionSettings.setValue('user_data', JSON.stringify(userData));
       return { error: null };
     } catch (err) {
       return { error: err as Error };
     }
   };
 
-  const signUp = async (email: string, password: string, name: string) => {
+  const signUp = async (firstName: string, paternalSurname: string, maternalSurname: string, email: string, password: string, phone: string, role: string) => {
     try {
-      const response = await auth.register(email, password, name);
+      const response = await auth.register(firstName, paternalSurname, maternalSurname, email, password, phone, role);
       const userData = {
         id: response.user.id,
         email: response.user.email,
-        name: response.user.name || name,
-        role: response.user.role || 'user',
+        name: `${firstName} ${paternalSurname}`,
+        role: response.user.role || role,
       };
       setUser(userData);
-      localStorage.setItem('user_data', JSON.stringify(userData));
+      sessionSettings.setValue('user_data', JSON.stringify(userData));
       return { error: null };
     } catch (err) {
       return { error: err as Error };
@@ -84,11 +87,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Error during logout:', error);
     }
     setUser(null);
-    localStorage.removeItem('user_data');
+    sessionSettings.removeValue('user_data');
+  };
+
+  const setKeepSession = (keep: boolean) => {
+    sessionSettings.setPersistent(keep);
+    setKeepSessionState(keep);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, loading, keepSession, signIn, signUp, signOut, setKeepSession }}>
       {children}
     </AuthContext.Provider>
   );
