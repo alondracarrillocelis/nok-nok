@@ -101,7 +101,8 @@ export async function exampleCreateStudent() {
       paternalSurname: 'García',
       maternalSurname: 'López',
       enrollmentNumber: 'NOK-2026-0001',
-      status: 'activo',
+      gender: 'female',
+      status: 'active',
     });
     console.log('Estudiante creado:', newStudent.id);
   } catch (error) {
@@ -162,7 +163,7 @@ export async function exampleCreateSubject() {
       code: 'MAT-101',
       description: 'Curso de matemáticas básicas',
       credits: 3,
-      status: 'activo',
+      status: 'active',
     });
     console.log('Materia creada:', newSubject.id);
   } catch (error) {
@@ -196,7 +197,8 @@ export async function exampleCreateAilment() {
       description: 'Enfermedad respiratoria crónica',
       medication: 'Inhalador',
       medicalDescription: 'Condición que requiere control por especialista',
-      severity: 'moderado',
+      severity: 'moderate',
+      status: 'active',
       notes: 'Evitar exposición a polvo',
     });
     console.log('Padecimiento creado:', newAilment.id);
@@ -229,8 +231,10 @@ export async function exampleCreateUser() {
     const newUser = await users.create({
       firstName: 'Carlos',
       paternalSurname: 'Profesor',
+      maternalSurname: 'Ramírez',
       email: 'profesor@example.com',
       password: 'password123',
+      phone: '5512345678',
       role: 'tutor',
     });
     console.log('Usuario creado:', newUser.id);
@@ -338,7 +342,7 @@ export async function exampleCreateEnrollment() {
     const enrollment = await enrollments.create({
       studentId: 'alumno-id-123',
       program: 'Programa I',
-      status: 'activo',
+      status: 'active',
       enrollmentDate: new Date().toISOString().slice(0, 10),
     });
     console.log('Inscripción creada:', enrollment.id);
@@ -366,7 +370,7 @@ export async function exampleListDocuments(studentId: string) {
 /**
  * Ejemplo 23: Subir documento
  */
-export async function exampleUploadDocument(file: File, studentId: string, _subjectId?: string) {
+export async function exampleUploadDocument(file: File, studentId: string) {
   try {
     const result = await documents.upload({
       studentId,

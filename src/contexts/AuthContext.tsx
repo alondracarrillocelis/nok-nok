@@ -65,15 +65,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = async (firstName: string, paternalSurname: string, maternalSurname: string, email: string, password: string, phone: string, role: string) => {
     try {
-      const response = await auth.register(firstName, paternalSurname, maternalSurname, email, password, phone, role);
-      const userData = {
-        id: response.user.id,
-        email: response.user.email,
-        name: `${firstName} ${paternalSurname}`,
-        role: response.user.role || role,
-      };
-      setUser(userData);
-      sessionSettings.setValue('user_data', JSON.stringify(userData));
+      await auth.register(firstName, paternalSurname, maternalSurname, email, password, phone, role);
       return { error: null };
     } catch (err) {
       return { error: err as Error };

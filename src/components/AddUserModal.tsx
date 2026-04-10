@@ -27,7 +27,7 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
     role: 'tutor' as UserRole,
   };
   const [formData, setFormData] = useState(initialFormData);
-  const [savedFormData, setSavedFormData] = useState(initialFormData);
+  const [savedFormData] = useState(initialFormData);
   const [showUnsavedChangesConfirm, setShowUnsavedChangesConfirm] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -111,7 +111,7 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
         role,
       });
 
-      showToast(`${role === 'admin' ? 'Administrador' : 'Tutor'} agregado exitosamente`, 'success');
+      showToast(`${role === 'admin' ? 'Administrador' : 'Representante'} agregado exitosamente`, 'success');
       onSuccess();
       onClose();
     } catch (error) {
@@ -180,7 +180,7 @@ export default function AddUserModal({ onClose, onSuccess }: AddUserModalProps) 
                         : 'border-gray-300 bg-white text-gray-700 hover:border-green-300'
                     }`}
                   >
-                    Tutor
+                    Representante
                   </button>
                   <button
                     onClick={() => {

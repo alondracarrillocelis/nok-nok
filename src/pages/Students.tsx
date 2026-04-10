@@ -1,7 +1,9 @@
 import { useEffect, useState, useRef, lazy, Suspense } from 'react';
 import { Search, Plus, MoreVertical, Eye, X, Edit2, Trash2, BookOpen, Trash, Bot } from 'lucide-react';
-import { students as studentsApi, StudentDetailResponse } from '../lib/api';
+import { students as studentsApi, programs as programsApi, users as usersApi, enrollments, documents, Enrollment, Program } from '../lib/api';
+import { getEnrollmentTypeLabel, getProgramFromEnrollment, getProgramNameFromEnrollment, sortEnrollmentsByDate } from '../lib/academy';
 import Layout from '../components/Layout';
+import DragDropUpload from '../components/DragDropUpload';
 const AddStudentModal = lazy(() => import('../components/AddStudentModal'));
 const EditStudentModal = lazy(() => import('../components/EditStudentModal'));
 import ConfirmationModal from '../components/ConfirmationModal';
@@ -15,14 +17,8 @@ interface Student {
   enrollmentNumber: string;
   currentLevel?: string | null;
   enrollmentDate?: string | null;
-  status: 'activo' | 'pendiente' | 'baja';
-}
-
-interface Tutor {
-  id: string;
-  name: string;
-  phone?: string;
-  email?: string;
+  representative?: string | null;
+  status: 'active' | 'inactive' | 'dropped';
 }
 
 interface SubjectShort {
@@ -39,14 +35,28 @@ interface DocumentFile {
   uploaded_at: string;
 }
 
+interface RepresentativeOption {
+  id: string;
+  name: string;
+}
+
+interface StudentEnrollmentDetail extends Enrollment {
+  programName: string;
+  programDetails: Program | null;
+  representativeName?: string | null;
+}
+
 interface DetailedStudent extends Student {
   birthDate?: string | null;
   currentGrade?: string | null;
   program?: string | null;
+  programDetails?: Program | null;
+  enrollments?: StudentEnrollmentDetail[];
   shift?: string | null;
   representative?: string | null;
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
   curp?: string | null;
-  tutors?: Tutor[];
   subjects?: SubjectShort[];
   documents?: DocumentFile[];
   ailments?: Array<{
@@ -56,6 +66,21 @@ interface DetailedStudent extends Student {
     medication?: string;
   }>;
 }
+
+const UUID_PATTERN = /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/;
+const ENROLLMENT_STATUS_OPTIONS = [
+  { value: 'active', label: 'Activa' },
+  { value: 'inactive', label: 'Inactiva' },
+  { value: 'dropped', label: 'Baja' },
+];
+
+const formatRepresentativeName = (user: { firstName?: string; paternalSurname?: string; maternalSurname?: string | null } | RepresentativeOption) => {
+  if ('name' in user) {
+    return user.name;
+  }
+
+  return [user.firstName, user.paternalSurname, user.maternalSurname].filter(Boolean).join(' ');
+};
 
 export default function Students() {
   const getPreviousMonthValue = () => {
@@ -67,7 +92,7 @@ export default function Students() {
   const [students, setStudents] = useState<Student[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'activo' | 'pendiente' | 'baja'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'dropped'>('all');
   const [enrollmentMonthFilter, setEnrollmentMonthFilter] = useState<string>('');
   const [page, setPage] = useState(1);
   const [limit] = useState(20);
@@ -77,8 +102,22 @@ export default function Students() {
   const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
   const [selectedStudent, setSelectedStudent] = useState<DetailedStudent | null>(null);
+  const [programCatalog, setProgramCatalog] = useState<Program[]>([]);
+  const [representativeCatalog, setRepresentativeCatalog] = useState<RepresentativeOption[]>([]);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [currentDetailTab, setCurrentDetailTab] = useState<'info' | 'tutores' | 'materias' | 'documentos'>('info');
+  const [currentDetailTab, setCurrentDetailTab] = useState<'info' | 'programas' | 'representante' | 'documentos'>('info');
+  const [showAddEnrollmentForm, setShowAddEnrollmentForm] = useState(false);
+  const [isSavingEnrollment, setIsSavingEnrollment] = useState(false);
+  const [newEnrollmentForm, setNewEnrollmentForm] = useState({
+    programId: '',
+    enrollmentDate: new Date().toISOString().slice(0, 10),
+    enrollmentType: 'semanal',
+    representativeId: '',
+    status: 'active',
+  });
+  const [showInlineDocumentUploader, setShowInlineDocumentUploader] = useState(false);
+  const [inlineDocumentFiles, setInlineDocumentFiles] = useState<File[]>([]);
+  const [isUploadingInlineDocuments, setIsUploadingInlineDocuments] = useState(false);
   const [confirmationModal, setConfirmationModal] = useState<{
     isOpen: boolean;
     type: 'delete' | 'edit' | 'add' | 'delete-multiple';
@@ -105,6 +144,9 @@ export default function Students() {
       if (cardRef.current && !cardRef.current.contains(event.target as Node)) {
         setSelectedStudent(null);
         setCurrentDetailTab('info');
+        setShowAddEnrollmentForm(false);
+        setShowInlineDocumentUploader(false);
+        setInlineDocumentFiles([]);
       }
     };
 
@@ -159,11 +201,11 @@ export default function Students() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'activo':
+      case 'active':
         return 'bg-green-100 text-green-800';
-      case 'pendiente':
+      case 'inactive':
         return 'bg-yellow-100 text-yellow-800';
-      case 'baja':
+      case 'dropped':
         return 'bg-red-100 text-red-800';
       default:
         return 'bg-gray-100 text-gray-800';
@@ -172,37 +214,162 @@ export default function Students() {
 
   const getStatusLabel = (status: Student['status']) => {
     switch (status) {
-      case 'activo':
+      case 'active':
         return 'Activo';
-      case 'pendiente':
-        return 'Pendiente';
-      case 'baja':
+      case 'inactive':
+        return 'Inactivo';
+      case 'dropped':
         return 'Baja';
       default:
         return status;
     }
   };
 
-  const handleToggleStudent = async (student: Student) => {
-    if (selectedStudent && selectedStudent.id === student.id) {
-      setSelectedStudent(null);
-      setCurrentDetailTab('info');
+  const getEnrollmentStatusLabel = (status?: string | null) => {
+    switch (status) {
+      case 'active':
+      case 'activo':
+        return 'Activa';
+      case 'inactive':
+      case 'inactivo':
+        return 'Inactiva';
+      case 'dropped':
+      case 'baja':
+        return 'Baja';
+      default:
+        return status || 'Sin estado';
+    }
+  };
+
+  const availableProgramsForSelectedStudent = selectedStudent
+    ? programCatalog.filter((program) => {
+        const assignedProgramIds = new Set(
+          (selectedStudent.enrollments || []).map((enrollment) => enrollment.programId).filter(Boolean)
+        );
+
+        return program.status === 'active' && !assignedProgramIds.has(program.id);
+      })
+    : [];
+
+  const openAddEnrollmentForm = () => {
+    if (!selectedStudent) {
       return;
     }
 
-    setCurrentDetailTab('info');
+    const defaultProgramId = availableProgramsForSelectedStudent[0]?.id || '';
+    setNewEnrollmentForm({
+      programId: defaultProgramId,
+      enrollmentDate: new Date().toISOString().slice(0, 10),
+      enrollmentType: 'semanal',
+      representativeId: '',
+      status: 'active',
+    });
+    setShowAddEnrollmentForm(true);
+  };
+
+  const handleCreateEnrollment = async () => {
+    if (!selectedStudent) {
+      return;
+    }
+
+    if (!newEnrollmentForm.programId) {
+      showToast('Selecciona un programa para inscribir al alumno', 'error');
+      return;
+    }
+
+    setIsSavingEnrollment(true);
     try {
-      const stuData: StudentDetailResponse = await studentsApi.getById(student.id);
+      const selectedProgram = programCatalog.find((program) => program.id === newEnrollmentForm.programId);
+
+      await enrollments.create({
+        studentId: selectedStudent.id,
+        programId: newEnrollmentForm.programId,
+        program: selectedProgram?.name,
+        enrollmentDate: newEnrollmentForm.enrollmentDate,
+        enrollmentType: newEnrollmentForm.enrollmentType as Enrollment['enrollmentType'],
+        representativeId: newEnrollmentForm.representativeId || undefined,
+        status: newEnrollmentForm.status,
+      });
+
+      await refreshSelectedStudent(selectedStudent.id);
+      setShowAddEnrollmentForm(false);
+      showToast('Programa asignado exitosamente al alumno', 'success');
+    } catch (error) {
+      console.error('Error creating enrollment:', error);
+      const message = error instanceof Error ? error.message : 'Error al asignar el programa';
+      showToast(message, 'error');
+    } finally {
+      setIsSavingEnrollment(false);
+    }
+  };
+
+  const handleToggleStudent = async (student: Student, initialTab: 'info' | 'programas' = 'info') => {
+    if (selectedStudent && selectedStudent.id === student.id) {
+      setSelectedStudent(null);
+      setCurrentDetailTab(initialTab);
+      setShowAddEnrollmentForm(false);
+      setShowInlineDocumentUploader(false);
+      setInlineDocumentFiles([]);
+      return;
+    }
+
+    setCurrentDetailTab(initialTab);
+    try {
+      const detailed = await fetchStudentDetail(student);
+      setSelectedStudent(detailed);
+      setShowInlineDocumentUploader(false);
+      setInlineDocumentFiles([]);
+      setCurrentDetailTab(initialTab);
+      setOpenMenuId(null);
+    } catch (error) {
+      console.error('Error fetching student details:', error);
+      const message = error instanceof Error ? error.message : 'Error al cargar detalles del alumno';
+      showToast(message, 'error');
+    }
+  };
+
+  const fetchStudentDetail = async (student: Student): Promise<DetailedStudent> => {
+      const [stuData, programsCatalog, usersCatalog] = await Promise.all([
+        studentsApi.getById(student.id),
+        programsApi.list(),
+        usersApi.list(),
+      ]);
+      const representativeOptions = usersCatalog.map((user) => ({
+        id: user.id,
+        name: formatRepresentativeName(user),
+      }));
+      const representativesById = new Map(representativeOptions.map((user) => [user.id, user.name]));
+
+      setProgramCatalog(programsCatalog);
+      setRepresentativeCatalog(representativeOptions);
+
+      const enrollmentsResponse = UUID_PATTERN.test(stuData.id)
+        ? await enrollments.list(stuData.id)
+        : { data: [] };
+
+      const enrollmentHistory = sortEnrollmentsByDate(enrollmentsResponse.data || []);
+      const enrollmentDetails = enrollmentHistory.map((enrollment) => {
+        const programDetails = getProgramFromEnrollment(programsCatalog, enrollment);
+
+        return {
+          ...enrollment,
+          programDetails,
+          programName: getProgramNameFromEnrollment(programsCatalog, enrollment),
+          representativeName: enrollment.representativeId ? representativesById.get(enrollment.representativeId) || null : null,
+        };
+      });
+      const latestEnrollment = enrollmentDetails[0];
+      const programDetails = latestEnrollment?.programDetails || getProgramFromEnrollment(programsCatalog, {
+        programId: null,
+        program: stuData.program || null,
+      });
 
       const detailed: DetailedStudent = {
         ...student,
         ...stuData,
-        tutors: (stuData.tutors || []).map((tutor) => ({
-          id: tutor.id,
-          name: tutor.name,
-          phone: tutor.phone || undefined,
-          email: tutor.email || undefined,
-        })),
+        program: latestEnrollment?.programName || stuData.program || null,
+        programDetails,
+        enrollments: enrollmentDetails,
         subjects: (stuData.subjects || []).map((item) => ({
           id: item.subject.id,
           name: item.subject.name,
@@ -223,13 +390,49 @@ export default function Students() {
         })),
       };
 
-      setSelectedStudent(detailed);
-      setCurrentDetailTab('info');
-      setOpenMenuId(null);
+      return detailed;
+  };
+
+  const refreshSelectedStudent = async (studentId: string) => {
+    const student = students.find((item) => item.id === studentId)
+      || filteredStudents.find((item) => item.id === studentId)
+      || (selectedStudent && selectedStudent.id === studentId ? selectedStudent : null);
+
+    if (!student) {
+      return;
+    }
+
+    const detailed = await fetchStudentDetail(student);
+    setSelectedStudent(detailed);
+  };
+
+  const handleInlineDocumentUpload = async () => {
+    if (!selectedStudent || inlineDocumentFiles.length === 0) {
+      return;
+    }
+
+    setIsUploadingInlineDocuments(true);
+    try {
+      for (const file of inlineDocumentFiles) {
+        await documents.upload({
+          studentId: selectedStudent.id,
+          documentType: 'pdf',
+          fileName: file.name,
+          fileUrl: URL.createObjectURL(file),
+        });
+      }
+
+      await refreshSelectedStudent(selectedStudent.id);
+      setInlineDocumentFiles([]);
+      setShowInlineDocumentUploader(false);
+      setCurrentDetailTab('documentos');
+      showToast('Documentos agregados exitosamente', 'success');
     } catch (error) {
-      console.error('Error fetching student details:', error);
-      const message = error instanceof Error ? error.message : 'Error al cargar detalles del alumno';
+      console.error('Error uploading student documents:', error);
+      const message = error instanceof Error ? error.message : 'Error al agregar documentos';
       showToast(message, 'error');
+    } finally {
+      setIsUploadingInlineDocuments(false);
     }
   };
 
@@ -316,7 +519,7 @@ export default function Students() {
   };
 
   const handleNavigateTab = (direction: 'next' | 'prev') => {
-    const tabs: ('info' | 'tutores' | 'materias' | 'documentos')[] = ['info', 'tutores', 'materias', 'documentos'];
+    const tabs: ('info' | 'programas' | 'representante' | 'documentos')[] = ['info', 'programas', 'representante', 'documentos'];
     const currentIndex = tabs.indexOf(currentDetailTab);
     
     if (direction === 'next') {
@@ -345,15 +548,28 @@ export default function Students() {
                 </h3>
                 <p className="text-sm text-gray-600 mt-1">Matrícula: <span className="font-semibold text-gray-800">{selectedStudent.enrollmentNumber}</span></p>
               </div>
-              <button
-                onClick={() => {
-                  setSelectedStudent(null);
-                  setCurrentDetailTab('info');
-                }}
-                className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-white/80"
-              >
-                <X size={20} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleEditStudentClick(selectedStudent.id)}
+                  className="rounded-lg p-2 text-blue-600 transition-colors hover:bg-white/80 hover:text-blue-700"
+                  title="Editar alumno"
+                >
+                  <Edit2 size={18} />
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedStudent(null);
+                    setCurrentDetailTab('info');
+                    setShowAddEnrollmentForm(false);
+                    setShowInlineDocumentUploader(false);
+                    setInlineDocumentFiles([]);
+                  }}
+                  className="text-gray-500 hover:text-gray-700 p-1 rounded-lg hover:bg-white/80"
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
             {/* Content */}
@@ -371,6 +587,13 @@ export default function Students() {
                   <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-2xl p-4 border border-blue-100">
                     <p className="text-xs font-semibold text-gray-500 uppercase">Nivel</p>
                     <p className="text-sm font-medium text-gray-800 mt-1">{selectedStudent.currentLevel || '—'}</p>
+                  </div>
+                  <div className="bg-gradient-to-br from-slate-50 to-indigo-50 rounded-2xl p-4 border border-indigo-100">
+                    <p className="text-xs font-semibold text-gray-500 uppercase">Programa actual</p>
+                    <p className="text-sm font-medium text-gray-800 mt-1">{selectedStudent.programDetails?.name || selectedStudent.program || '—'}</p>
+                    {selectedStudent.enrollments && selectedStudent.enrollments.length > 1 && (
+                      <p className="mt-1 text-xs text-gray-500">{selectedStudent.enrollments.length} programas registrados</p>
+                    )}
                   </div>
                   <div className="bg-gradient-to-br from-slate-50 to-amber-50 rounded-2xl p-4 border border-amber-100">
                     <p className="text-xs font-semibold text-gray-500 uppercase">Estado</p>
@@ -391,8 +614,8 @@ export default function Students() {
                   </div>
                   <div className="bg-gradient-to-br from-slate-50 to-emerald-50 rounded-2xl p-4 border border-emerald-100 md:col-span-2">
                     <p className="text-xs font-semibold text-gray-500 uppercase">Contacto de emergencia</p>
-                    <p className="text-sm font-medium text-gray-800 mt-1">{selectedStudent.tutors && selectedStudent.tutors.length > 0 ? selectedStudent.tutors[0].name : 'Sin contacto registrado'}</p>
-                    <p className="text-sm text-gray-700 mt-1">Teléfono: {selectedStudent.tutors && selectedStudent.tutors.length > 0 ? selectedStudent.tutors[0].phone || '—' : '—'}</p>
+                    <p className="text-sm font-medium text-gray-800 mt-1">{selectedStudent.emergencyContactName || 'Sin contacto registrado'}</p>
+                    <p className="text-sm text-gray-700 mt-1">Teléfono: {selectedStudent.emergencyContactPhone || '—'}</p>
                   </div>
                   <div className="bg-gradient-to-br from-slate-50 to-rose-50 rounded-2xl p-4 border border-rose-100 md:col-span-2">
                     <p className="text-xs font-semibold text-gray-500 uppercase">Padecimientos</p>
@@ -416,41 +639,227 @@ export default function Students() {
                 </div>
               )}
 
-              {currentDetailTab === 'tutores' && (
+              {currentDetailTab === 'representante' && (
                 <div className="space-y-3">
-                  {selectedStudent.tutors && selectedStudent.tutors.length > 0 ? (
-                    selectedStudent.tutors.map((tutor) => (
-                      <div key={tutor.id} className="rounded-xl border border-gray-200 p-3 bg-gray-50">
-                        <p className="font-medium text-gray-800">{tutor.name}</p>
-                      </div>
-                    ))
+                  {selectedStudent.representative ? (
+                    <div className="rounded-xl border border-gray-200 p-4 bg-gray-50">
+                      <p className="text-xs font-semibold text-gray-500 uppercase">Representante</p>
+                      <p className="mt-1 font-medium text-gray-800">{selectedStudent.representative}</p>
+                    </div>
                   ) : (
                     <div className="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500">
-                      No hay tutores asignados
+                      No hay representante asignado
                     </div>
                   )}
                 </div>
               )}
 
-              {currentDetailTab === 'materias' && (
-                <div className="space-y-2">
-                  {selectedStudent.subjects && selectedStudent.subjects.length > 0 ? (
-                    selectedStudent.subjects.map((subject) => (
-                      <div key={subject.id} className="rounded-xl border border-gray-200 p-3 bg-gray-50 flex items-center justify-between">
-                        <p className="font-medium text-gray-800">{subject.name}</p>
-                        <span className="text-xs text-gray-500">{subject.code}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500">
-                      No hay programas asignados
+              {currentDetailTab === 'programas' && (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold uppercase text-indigo-600">Programas inscritos</p>
+                      <button
+                        type="button"
+                        onClick={openAddEnrollmentForm}
+                        disabled={availableProgramsForSelectedStudent.length === 0}
+                        className="rounded-full border border-indigo-200 bg-white px-4 py-2 text-sm font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Agregar programa
+                      </button>
                     </div>
-                  )}
+
+                    {showAddEnrollmentForm && (
+                      <div className="mt-4 rounded-xl border border-indigo-200 bg-white p-4 shadow-sm">
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div>
+                            <label className="block text-xs font-semibold uppercase text-gray-500">Programa</label>
+                            <select
+                              value={newEnrollmentForm.programId}
+                              onChange={(event) => setNewEnrollmentForm((prev) => ({ ...prev, programId: event.target.value }))}
+                              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                            >
+                              <option value="">Seleccionar programa</option>
+                              {availableProgramsForSelectedStudent.map((program) => (
+                                <option key={program.id} value={program.id}>{program.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold uppercase text-gray-500">Fecha</label>
+                            <input
+                              type="date"
+                              value={newEnrollmentForm.enrollmentDate}
+                              onChange={(event) => setNewEnrollmentForm((prev) => ({ ...prev, enrollmentDate: event.target.value }))}
+                              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold uppercase text-gray-500">Tipo</label>
+                            <select
+                              value={newEnrollmentForm.enrollmentType}
+                              onChange={(event) => setNewEnrollmentForm((prev) => ({ ...prev, enrollmentType: event.target.value }))}
+                              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                            >
+                              <option value="semanal">Semanal</option>
+                              <option value="mensual">Mensual</option>
+                              <option value="por_nivel">Por nivel</option>
+                              <option value="programa_completo">Programa completo</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-semibold uppercase text-gray-500">Estatus</label>
+                            <select
+                              value={newEnrollmentForm.status}
+                              onChange={(event) => setNewEnrollmentForm((prev) => ({ ...prev, status: event.target.value }))}
+                              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                            >
+                              {ENROLLMENT_STATUS_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="block text-xs font-semibold uppercase text-gray-500">Representante</label>
+                            <select
+                              value={newEnrollmentForm.representativeId}
+                              onChange={(event) => setNewEnrollmentForm((prev) => ({ ...prev, representativeId: event.target.value }))}
+                              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                            >
+                              <option value="">Sin representante</option>
+                              {representativeCatalog.map((representative) => (
+                                <option key={representative.id} value={representative.id}>{representative.name}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <div className="mt-4 flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowAddEnrollmentForm(false)}
+                            className="rounded-full border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleCreateEnrollment}
+                            disabled={isSavingEnrollment}
+                            className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+                          >
+                            {isSavingEnrollment ? 'Guardando...' : 'Guardar inscripción'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedStudent.enrollments && selectedStudent.enrollments.length > 0 ? (
+                      <div className="mt-3 space-y-3">
+                        {selectedStudent.enrollments.map((enrollment, index) => (
+                          <details key={enrollment.id} open={index === 0} className="rounded-xl bg-white p-4 shadow-sm">
+                            <summary className="cursor-pointer list-none">
+                              <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                                <span className="font-semibold text-gray-900">{enrollment.programName}</span>
+                                <span className="text-xs text-gray-500">
+                                  {getEnrollmentTypeLabel(enrollment.enrollmentType)} · {getEnrollmentStatusLabel(enrollment.status)}
+                                </span>
+                              </div>
+                            </summary>
+                            <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                              <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                <p className="text-xs font-semibold uppercase text-gray-500">Fecha de inscripción</p>
+                                <p className="mt-1 text-sm text-gray-800">{enrollment.enrollmentDate ? new Date(enrollment.enrollmentDate).toLocaleDateString('es-MX') : 'Sin fecha'}</p>
+                              </div>
+                              <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                <p className="text-xs font-semibold uppercase text-gray-500">Representante</p>
+                                <p className="mt-1 text-sm text-gray-800">{enrollment.representativeName || 'Sin representante'}</p>
+                              </div>
+                              <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                <p className="text-xs font-semibold uppercase text-gray-500">Estatus</p>
+                                <p className="mt-1 text-sm text-gray-800">{getEnrollmentStatusLabel(enrollment.status)}</p>
+                              </div>
+                              <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                <p className="text-xs font-semibold uppercase text-gray-500">Vigencia</p>
+                                <p className="mt-1 text-sm text-gray-800">{enrollment.dueDate ? new Date(enrollment.dueDate).toLocaleDateString('es-MX') : 'Sin vencimiento'}</p>
+                              </div>
+                            </div>
+                            <p className="mt-3 text-sm text-gray-600">
+                              {enrollment.programDetails?.description || 'Sin descripción'}
+                            </p>
+                            <div className="mt-3 space-y-2">
+                              {enrollment.programDetails?.subjects.length ? (
+                                enrollment.programDetails.subjects.map((subject) => (
+                                  <div key={subject.id} className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                    <span className="text-sm font-medium text-gray-800">{subject.name}</span>
+                                    <span className="text-xs text-gray-500">{subject.code}</span>
+                                  </div>
+                                ))
+                              ) : (
+                                <p className="text-sm text-gray-500">Este programa no tiene materias configuradas.</p>
+                              )}
+                            </div>
+                          </details>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-sm text-gray-600">No hay inscripciones registradas para este alumno.</p>
+                    )}
+                  </div>
                 </div>
               )}
 
               {currentDetailTab === 'documentos' && (
-                <div className="space-y-2">
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">Documentos del alumno</p>
+                      <p className="text-xs text-gray-500">Puedes agregarlos desde aqui sin abrir el modal completo.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowInlineDocumentUploader((prev) => !prev)}
+                      className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-100"
+                    >
+                      {showInlineDocumentUploader ? 'Ocultar' : 'Agregar documentos'}
+                    </button>
+                  </div>
+
+                  {showInlineDocumentUploader && (
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
+                      <p className="text-sm font-semibold text-gray-900">Carga rapida de documentos</p>
+                      <p className="mt-1 text-xs text-gray-600">Selecciona los archivos y guardalos directamente en la ficha.</p>
+                      <div className="mt-4">
+                        <DragDropUpload
+                          onFilesSelected={setInlineDocumentFiles}
+                          accept=".pdf"
+                          maxFiles={10}
+                          maxFileSizeMB={10}
+                          label="Arrastra documentos PDF aqui o selecciona archivos"
+                        />
+                      </div>
+                      <div className="mt-4 flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowInlineDocumentUploader(false);
+                            setInlineDocumentFiles([]);
+                          }}
+                          className="rounded-full border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-white"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleInlineDocumentUpload}
+                          disabled={inlineDocumentFiles.length === 0 || isUploadingInlineDocuments}
+                          className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isUploadingInlineDocuments ? 'Guardando...' : 'Guardar documentos'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {selectedStudent.documents && selectedStudent.documents.length > 0 ? (
                     selectedStudent.documents.map((doc) => (
                       <div key={doc.id} className="rounded-xl border border-gray-200 p-3 bg-gray-50">
@@ -461,7 +870,17 @@ export default function Students() {
                     ))
                   ) : (
                     <div className="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500">
-                      No hay documentos
+                      <p>No hay documentos.</p>
+                      <p className="mt-1">Si quieres agregarlos, presiona el siguiente boton para abrir una carga rapida aqui mismo.</p>
+                      {!showInlineDocumentUploader && (
+                        <button
+                          type="button"
+                          onClick={() => setShowInlineDocumentUploader(true)}
+                          className="mt-3 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition-colors hover:bg-emerald-100"
+                        >
+                          Agregar documentos
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -491,24 +910,24 @@ export default function Students() {
                   Info
                 </button>
                 <button
-                  onClick={() => setCurrentDetailTab('tutores')}
+                  onClick={() => setCurrentDetailTab('programas')}
                   className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
-                    currentDetailTab === 'tutores'
-                      ? 'bg-green-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Tutores
-                </button>
-                <button
-                  onClick={() => setCurrentDetailTab('materias')}
-                  className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
-                    currentDetailTab === 'materias'
+                    currentDetailTab === 'programas'
                       ? 'bg-green-600 text-white'
                       : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                   }`}
                 >
                   Programas
+                </button>
+                <button
+                  onClick={() => setCurrentDetailTab('representante')}
+                  className={`px-3 py-1.5 rounded-full text-sm transition-colors ${
+                    currentDetailTab === 'representante'
+                      ? 'bg-green-600 text-white'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  Representante
                 </button>
                 <button
                   onClick={() => setCurrentDetailTab('documentos')}
@@ -543,18 +962,6 @@ export default function Students() {
               <Plus size={20} />
               <span>Agregar Alumno/a</span>
             </button>
-            {/*
-            <button
-              type="button"
-              onClick={() => fetchStudents()}
-              disabled
-              title="Recarga deshabilitada temporalmente"
-              className="flex items-center gap-2 bg-white border border-gray-200 text-gray-400 px-4 py-3 rounded-full font-semibold cursor-not-allowed"
-            >
-              <RefreshCw size={18} />
-              Recargar
-            </button>
-            */}
           </div>
 
           <div className="flex flex-col items-end gap-3">
@@ -613,41 +1020,41 @@ export default function Students() {
               <button
                 onClick={() => {
                   setPage(1);
-                  setStatusFilter('activo');
+                  setStatusFilter('active');
                 }}
                 className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-                  statusFilter === 'activo'
+                  statusFilter === 'active'
                     ? 'bg-green-500 text-white'
                     : 'bg-white text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                Activo
+                Activos
               </button>
               <button
                 onClick={() => {
                   setPage(1);
-                  setStatusFilter('pendiente');
+                  setStatusFilter('inactive');
                 }}
                 className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-                  statusFilter === 'pendiente'
+                  statusFilter === 'inactive'
                     ? 'bg-yellow-500 text-white'
                     : 'bg-white text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                Pendiente
+                Inactivos
               </button>
               <button
                 onClick={() => {
                   setPage(1);
-                  setStatusFilter('baja');
+                  setStatusFilter('dropped');
                 }}
                 className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-                  statusFilter === 'baja'
+                  statusFilter === 'dropped'
                     ? 'bg-red-500 text-white'
                     : 'bg-white text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                Baja
+                Dados de baja
               </button>
             </div>
           </div>
@@ -696,7 +1103,7 @@ export default function Students() {
                     Fecha de Inscripción
                   </th>
                   <th className="px-6 py-4 text-left text-sm font-bold text-gray-700 uppercase">
-                    Tutor
+                    Representante
                   </th>
                   <th className="px-6 py-4 text-left text-sm font-bold text-gray-700 uppercase">
                     Acciones
@@ -760,11 +1167,10 @@ export default function Students() {
                         </span>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="text-blue-600 hover:underline cursor-pointer">
-                        Sin tutor asignado
+                    <td className="px-6 py-4 text-gray-700">
+                      <div className="font-medium text-blue-600">
+                        {student.representative || 'Sin representante asignado'}
                       </div>
-                      <div className="text-sm text-gray-500">—</div>
                     </td>
                     <td className="px-6 py-4">
                       <div className="relative">
@@ -790,13 +1196,12 @@ export default function Students() {
                             <button
                               onClick={() => {
                                 setOpenMenuId(null);
-                                setCurrentDetailTab('materias');
-                                handleToggleStudent(student);
+                                handleToggleStudent(student, 'programas');
                               }}
                               className="w-full text-left px-4 py-2 hover:bg-green-50 flex items-center space-x-2 transition-colors text-gray-700 font-semibold border-b border-gray-100"
                             >
                               <BookOpen size={16} className="text-green-600" />
-                              <span>Asignar Programas</span>
+                              <span>Ver Programas</span>
                             </button>
                             <button
                               onClick={() => handleDeleteStudent(student.id)}
@@ -857,10 +1262,13 @@ export default function Students() {
           <EditStudentModal
             studentId={editingStudentId}
             onClose={() => setEditingStudentId(null)}
-            onSuccess={() => {
+            onSuccess={async () => {
+              const updatedStudentId = editingStudentId;
               setEditingStudentId(null);
-              fetchStudents();
-              setSelectedStudent(null);
+              await fetchStudents();
+              if (updatedStudentId && selectedStudent?.id === updatedStudentId) {
+                await refreshSelectedStudent(updatedStudentId);
+              }
               showToast('Alumno/a actualizado exitosamente', 'success');
             }}
           />

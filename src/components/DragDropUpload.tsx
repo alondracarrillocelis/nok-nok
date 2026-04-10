@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Upload, FileText, X } from 'lucide-react';
 import { showToast } from './Toast';
 
@@ -17,6 +17,8 @@ export default function DragDropUpload({
   maxFileSizeMB = 10,
   label = 'Arrastra archivos aquí o haz clic para seleccionar',
 }: DragDropUploadProps) {
+  const inputId = useId();
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
 
@@ -88,6 +90,10 @@ export default function DragDropUpload({
     onFilesSelected(updatedFiles);
   };
 
+  const openFileExplorer = () => {
+    inputRef.current?.click();
+  };
+
   return (
     <div className="w-full">
       <div
@@ -107,21 +113,21 @@ export default function DragDropUpload({
           Formatos: {accept.toUpperCase()} (Máximo {maxFiles} archivos, {maxFileSizeMB}MB c/u)
         </p>
         <input
+          ref={inputRef}
           type="file"
           multiple
           accept={accept}
           onChange={handleFileInput}
           className="hidden"
-          id="fileInput"
+          id={inputId}
         />
-        <label htmlFor="fileInput" className="cursor-pointer">
-          <button
-            type="button"
-            className="px-6 py-2 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition-colors"
-          >
-            Seleccionar Archivos
-          </button>
-        </label>
+        <button
+          type="button"
+          onClick={openFileExplorer}
+          className="px-6 py-2 bg-green-500 text-white rounded-lg font-medium hover:bg-green-600 transition-colors"
+        >
+          Seleccionar Archivos
+        </button>
       </div>
 
       {files.length > 0 && (

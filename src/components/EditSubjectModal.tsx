@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { subjects } from '../lib/api';
+import ConfirmationModal from './ConfirmationModal';
 import { showToast } from './Toast';
 
 interface EditSubjectModalProps {
@@ -14,8 +15,8 @@ export default function EditSubjectModal({ subjectId, onClose, onSuccess }: Edit
     name: '',
     code: '',
     description: '',
-    credits: 3,
-    status: 'activo' as 'activo' | 'inactivo',
+    credits: 0,
+    status: 'active' as 'active' | 'inactive',
   };
   const [formData, setFormData] = useState(initialFormData);
   const [savedFormData, setSavedFormData] = useState(initialFormData);
@@ -41,12 +42,12 @@ export default function EditSubjectModal({ subjectId, onClose, onSuccess }: Edit
       try {
         const data = await subjects.getById(subjectId);
         if (data) {
-          const formValues = {
+          const formValues: typeof initialFormData = {
             name: data.name || '',
             code: data.code || '',
             description: data.description || '',
-            credits: data.credits ?? 3,
-            status: (data.status === 'inactivo' ? 'inactivo' : 'activo'),
+            credits: data.credits ?? 0,
+            status: data.status === 'inactive' ? 'inactive' : 'active',
           };
           setFormData(formValues);
           setSavedFormData(formValues);
@@ -66,7 +67,7 @@ export default function EditSubjectModal({ subjectId, onClose, onSuccess }: Edit
     const newErrors: Record<string, string> = {};
     if (!formData.name.trim()) newErrors.name = 'El nombre es obligatorio';
     if (!formData.code.trim()) newErrors.code = 'El código es obligatorio';
-    if (formData.credits <= 0) newErrors.credits = 'Los créditos deben ser mayor a 0';
+    if (formData.credits < 0) newErrors.credits = 'Los créditos no pueden ser negativos';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -163,7 +164,7 @@ export default function EditSubjectModal({ subjectId, onClose, onSuccess }: Edit
               type="number"
               value={formData.credits}
               onChange={(e) => setFormData(prev => ({ ...prev, credits: parseInt(e.target.value) || 0 }))}
-              min={1}
+              min={0}
               className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 ${
                 errors.credits ? 'border-red-400 focus:ring-red-500' : 'border-gray-300 focus:ring-green-500'
               }`}
@@ -174,11 +175,11 @@ export default function EditSubjectModal({ subjectId, onClose, onSuccess }: Edit
             <label className="block text-sm font-semibold text-gray-700 mb-2">Estado</label>
             <select
               value={formData.status}
-              onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value as 'activo' | 'inactivo' }))}
+              onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value as 'active' | 'inactive' }))}
               className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
             >
-              <option value="activo">Activo</option>
-              <option value="inactivo">Inactivo</option>
+              <option value="active">Activo</option>
+              <option value="inactive">Inactivo</option>
             </select>
           </div>
         </div>
@@ -202,7 +203,7 @@ export default function EditSubjectModal({ subjectId, onClose, onSuccess }: Edit
 
       <ConfirmationModal
         isOpen={showUnsavedChangesConfirm}
-        type="warning"
+        type="info"
         title="Cambios Sin Guardar"
         message="Tienes cambios sin guardar. ¿Estás seguro de que deseas cerrar sin guardar?"
         onConfirm={() => {

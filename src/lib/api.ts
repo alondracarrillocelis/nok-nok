@@ -19,6 +19,16 @@ export interface AuthResponse {
   };
 }
 
+export interface RegisterResponse {
+  user: {
+    id: string;
+    email: string;
+    role: string;
+    firstName: string;
+    paternalSurname: string;
+  };
+}
+
 interface RefreshTokenResponse {
   accessToken: string;
   refreshToken?: string;
@@ -79,7 +89,7 @@ export interface Student {
   id: string;
   firstName: string;
   paternalSurname: string;
-  maternalSurname: string | null;
+  maternalSurname: string;
   birthDate?: string | null;
   curp?: string | null;
   enrollmentNumber: string;
@@ -89,10 +99,34 @@ export interface Student {
   program?: string | null;
   shift?: string | null;
   representative?: string | null;
-  status: 'activo' | 'pendiente' | 'baja';
-  createdAt?: string;
-  updatedAt?: string;
+  gender?: 'male' | 'female' | 'other';
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
+  status: 'active' | 'inactive' | 'dropped';
+  createdAt: string;
+  updatedAt: string;
 }
+
+export interface CreateStudentPayload {
+  firstName: string;
+  paternalSurname: string;
+  maternalSurname: string;
+  birthDate?: string | null;
+  curp?: string | null;
+  enrollmentNumber: string;
+  enrollmentDate?: string | null;
+  currentLevel?: string | null;
+  currentGrade?: string | null;
+  program?: string | null;
+  shift?: string | null;
+  representative?: string | null;
+  gender: 'male' | 'female' | 'other';
+  emergencyContactName?: string | null;
+  emergencyContactPhone?: string | null;
+  status: 'active' | 'inactive' | 'dropped';
+}
+
+export type UpdateStudentPayload = Partial<CreateStudentPayload>;
 
 export interface Tutor {
   id: string;
@@ -144,13 +178,13 @@ export interface Subject {
   code: string;
   description: string;
   credits: number;
-  status: 'activo' | 'inactivo';
+  status: 'active' | 'inactive';
   createdAt: string;
   updatedAt: string;
 }
 
 export interface SubjectFilters {
-  status?: 'activo' | 'inactivo';
+  status?: 'active' | 'inactive';
   search?: string;
 }
 
@@ -159,7 +193,7 @@ export interface CreateSubjectPayload {
   code: string;
   description: string;
   credits: number;
-  status: 'activo' | 'inactivo';
+  status?: 'active' | 'inactive';
 }
 
 export interface UpdateSubjectPayload {
@@ -167,7 +201,43 @@ export interface UpdateSubjectPayload {
   code?: string;
   description?: string;
   credits?: number;
-  status?: 'activo' | 'inactivo';
+  status?: 'active' | 'inactive';
+}
+
+export interface ProgramSubject {
+  id: string;
+  name: string;
+  code: string;
+  credits: number;
+}
+
+export interface Program {
+  id: string;
+  name: string;
+  description: string;
+  status: 'active' | 'inactive';
+  createdAt: string;
+  updatedAt: string;
+  subjects: ProgramSubject[];
+}
+
+export interface CreateProgramPayload {
+  name: string;
+  description: string;
+  status?: 'active' | 'inactive';
+}
+
+export interface UpdateProgramPayload {
+  name?: string;
+  description?: string;
+  status?: 'active' | 'inactive';
+}
+
+export interface ProgramSubjectAssignment {
+  id: string;
+  programId: string;
+  subjectId: string;
+  createdAt: string;
 }
 
 export interface Ailment {
@@ -176,7 +246,8 @@ export interface Ailment {
   description?: string;
   medication?: string;
   medicalDescription?: string;
-  severity?: 'leve' | 'moderado' | 'severo';
+  severity?: AilmentSeverity;
+  status?: AilmentStatus;
   notes?: string;
   createdAt?: string;
 }
@@ -186,7 +257,8 @@ export interface CreateAilmentPayload {
   description: string;
   medication: string;
   medicalDescription: string;
-  severity: 'leve' | 'moderado' | 'severo';
+  severity: AilmentSeverity;
+  status: AilmentStatus;
   notes: string;
 }
 
@@ -226,7 +298,8 @@ export interface Enrollment {
   studentId: string;
   folio?: string | null;
   enrollmentDate: string;
-  enrollmentType?: 'semanal' | 'trimestral' | 'anual' | null;
+  enrollmentType?: 'semanal' | 'mensual' | 'por_nivel' | 'programa_completo' | null;
+  programId?: string | null;
   program?: string | null;
   representativeId?: string | null;
   status: string;
@@ -235,12 +308,15 @@ export interface Enrollment {
   updatedAt?: string;
 }
 
+export type AilmentSeverity = 'mild' | 'moderate' | 'severe' | 'leve' | 'moderado' | 'severo';
+export type AilmentStatus = 'active' | 'inactive';
+
 export interface StudentAilment {
   id: string;
   studentId: string;
   ailmentId: string;
   ailment?: Ailment;
-  status?: 'active' | 'inactive';
+  status?: AilmentStatus;
   diagnosisDate?: string | null;
   notes?: string;
 }
@@ -260,6 +336,62 @@ export interface CreateDocumentPayload {
   fileName: string;
   fileUrl: string;
 }
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+type RawEnrollment = Partial<Enrollment> & {
+  program?: string | { id?: string | null; name?: string | null } | null;
+  programId?: string | null;
+};
+
+const isUuid = (value?: string | null): value is string => {
+  return Boolean(value && UUID_PATTERN.test(value));
+};
+
+const normalizeEnrollment = (enrollment: RawEnrollment): Enrollment => {
+  let programId = enrollment.programId ?? null;
+  const rawProgram = enrollment.program as string | { id?: string | null; name?: string | null } | null | undefined;
+  let programName = typeof rawProgram === 'string' ? rawProgram : null;
+
+  if (programName && isUuid(programName) && !programId) {
+    programId = programName;
+    programName = null;
+  }
+
+  if (rawProgram && typeof rawProgram === 'object') {
+    programId = programId ?? rawProgram.id ?? null;
+    programName = rawProgram.name ?? null;
+  }
+
+  return {
+    id: enrollment.id || '',
+    studentId: enrollment.studentId || '',
+    folio: enrollment.folio ?? null,
+    enrollmentDate: enrollment.enrollmentDate || '',
+    enrollmentType: enrollment.enrollmentType ?? null,
+    programId,
+    program: programName,
+    representativeId: enrollment.representativeId ?? null,
+    status: enrollment.status || '',
+    dueDate: enrollment.dueDate ?? null,
+    createdAt: enrollment.createdAt,
+    updatedAt: enrollment.updatedAt,
+  };
+};
+
+const normalizeEnrollmentPayload = (data: Partial<Enrollment>) => {
+  const payload = { ...data };
+
+  if (!payload.programId && isUuid(payload.program || null)) {
+    payload.programId = payload.program || null;
+  }
+
+  if (payload.programId && (!payload.program || isUuid(payload.program))) {
+    delete payload.program;
+  }
+
+  return payload;
+};
 
 // Helper para obtener token
 const getAuthHeader = (): HeadersInit => {
@@ -397,7 +529,15 @@ export const auth = {
     return data;
   },
 
-  register: async (firstName: string, paternalSurname: string, maternalSurname: string, email: string, password: string, phone: string, role: string): Promise<AuthResponse> => {
+  register: async (
+    firstName: string,
+    paternalSurname: string,
+    maternalSurname: string,
+    email: string,
+    password: string,
+    phone: string,
+    role: string
+  ): Promise<RegisterResponse> => {
     const response = await fetch(`${API_BASE_URL}${ENDPOINTS.AUTH.REGISTER}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -417,21 +557,10 @@ export const auth = {
 
     const text = await response.text();
     if (!text) {
-      // Si el registro no devuelve cuerpo JSON, intentar login automáticamente
-      return auth.login(email, password);
+      throw new Error('La respuesta del registro no contiene JSON válido');
     }
 
-    const data: AuthResponse = JSON.parse(text);
-    if (!data.accessToken) {
-      // Si no viene token, intentar login
-      return auth.login(email, password);
-    }
-
-    setSessionValue('auth_token', data.accessToken);
-    if (data.refreshToken) {
-      setSessionValue('refresh_token', data.refreshToken);
-    }
-    return data;
+    return JSON.parse(text) as RegisterResponse;
   },
 
   verifyEmail: async (token: string): Promise<ApiMessageResponse> => {
@@ -501,7 +630,7 @@ export const students = {
     page = 1,
     limit = 20,
   }: {
-    status?: 'activo' | 'pendiente' | 'baja';
+    status?: 'active' | 'inactive' | 'dropped';
     search?: string;
     page?: number;
     limit?: number;
@@ -514,7 +643,7 @@ export const students = {
     return apiCall(`${ENDPOINTS.STUDENTS.LIST}?${params.toString()}`, { method: 'GET' });
   },
 
-  create: async (student: Partial<Student>): Promise<Student> => {
+  create: async (student: CreateStudentPayload): Promise<Student> => {
     return apiCall(ENDPOINTS.STUDENTS.CREATE, {
       method: 'POST',
       body: JSON.stringify(student),
@@ -525,7 +654,7 @@ export const students = {
     return apiCall(ENDPOINTS.STUDENTS.GET_BY_ID(id), { method: 'GET' });
   },
 
-  update: async (id: string, data: Partial<Student>): Promise<Student> => {
+  update: async (id: string, data: UpdateStudentPayload): Promise<Student> => {
     return apiCall(ENDPOINTS.STUDENTS.UPDATE(id), {
       method: 'PATCH',
       body: JSON.stringify(data),
@@ -533,7 +662,7 @@ export const students = {
   },
 
   delete: async (id: string): Promise<StudentDeleteResponse> => {
-    return apiCall(ENDPOINTS.STUDENTS.DELETE(id), { method: 'DELETE' });
+    return apiCall<StudentDeleteResponse>(ENDPOINTS.STUDENTS.DELETE(id), { method: 'DELETE' });
   },
 };
 
@@ -573,6 +702,49 @@ export const subjects = {
 
   delete: async (id: string): Promise<void> => {
     return apiCall(ENDPOINTS.SUBJECTS.DELETE(id), { method: 'DELETE' });
+  },
+};
+
+// =====================================
+// PROGRAMAS
+// =====================================
+
+export const programs = {
+  list: async (): Promise<Program[]> => {
+    return apiCall(ENDPOINTS.PROGRAMS.LIST, { method: 'GET' });
+  },
+
+  create: async (program: CreateProgramPayload): Promise<Program> => {
+    return apiCall(ENDPOINTS.PROGRAMS.CREATE, {
+      method: 'POST',
+      body: JSON.stringify(program),
+    });
+  },
+
+  getById: async (id: string): Promise<Program> => {
+    return apiCall(ENDPOINTS.PROGRAMS.GET_BY_ID(id), { method: 'GET' });
+  },
+
+  update: async (id: string, data: UpdateProgramPayload): Promise<Program> => {
+    return apiCall(ENDPOINTS.PROGRAMS.UPDATE(id), {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  delete: async (id: string): Promise<void> => {
+    return apiCall(ENDPOINTS.PROGRAMS.DELETE(id), { method: 'DELETE' });
+  },
+
+  addSubject: async (id: string, subjectId: string): Promise<ProgramSubjectAssignment> => {
+    return apiCall(ENDPOINTS.PROGRAMS.ADD_SUBJECT(id), {
+      method: 'POST',
+      body: JSON.stringify({ subjectId }),
+    });
+  },
+
+  removeSubject: async (id: string, subjectId: string): Promise<void> => {
+    return apiCall(ENDPOINTS.PROGRAMS.REMOVE_SUBJECT(id, subjectId), { method: 'DELETE' });
   },
 };
 
@@ -651,7 +823,7 @@ export const studentAilments = {
     return apiCall(ENDPOINTS.STUDENT_AILMENTS.LIST(studentId), { method: 'GET' });
   },
 
-  create: async (data: { studentId: string; ailmentId: string; status?: string; diagnosisDate?: string; notes?: string }): Promise<StudentAilment> => {
+  create: async (data: { studentId: string; ailmentId: string; status?: AilmentStatus; diagnosisDate?: string; notes?: string }): Promise<StudentAilment> => {
     return apiCall(ENDPOINTS.STUDENT_AILMENTS.CREATE, {
       method: 'POST',
       body: JSON.stringify(data),
@@ -697,25 +869,35 @@ export const studentSubjects = {
 
 export const enrollments = {
   list: async (studentId?: string): Promise<{ data: Enrollment[] }> => {
-    return apiCall(ENDPOINTS.ENROLLMENTS.LIST(studentId), { method: 'GET' });
+    const response = await apiCall<{ data: RawEnrollment[] }>(ENDPOINTS.ENROLLMENTS.LIST(studentId), { method: 'GET' });
+
+    return {
+      data: (response.data || []).map(normalizeEnrollment),
+    };
   },
 
   create: async (data: Partial<Enrollment>): Promise<Enrollment> => {
-    return apiCall(ENDPOINTS.ENROLLMENTS.CREATE, {
+    const response = await apiCall<RawEnrollment>(ENDPOINTS.ENROLLMENTS.CREATE, {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(normalizeEnrollmentPayload(data)),
     });
+
+    return normalizeEnrollment(response);
   },
 
   getById: async (id: string): Promise<Enrollment> => {
-    return apiCall(ENDPOINTS.ENROLLMENTS.GET_BY_ID(id), { method: 'GET' });
+    const response = await apiCall<RawEnrollment>(ENDPOINTS.ENROLLMENTS.GET_BY_ID(id), { method: 'GET' });
+
+    return normalizeEnrollment(response);
   },
 
   update: async (id: string, data: Partial<Enrollment>): Promise<Enrollment> => {
-    return apiCall(ENDPOINTS.ENROLLMENTS.UPDATE(id), {
+    const response = await apiCall<RawEnrollment>(ENDPOINTS.ENROLLMENTS.UPDATE(id), {
       method: 'PATCH',
-      body: JSON.stringify(data),
+      body: JSON.stringify(normalizeEnrollmentPayload(data)),
     });
+
+    return normalizeEnrollment(response);
   },
 
   delete: async (id: string): Promise<void> => {

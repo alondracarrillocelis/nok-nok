@@ -51,6 +51,19 @@ export const ENDPOINTS = {
   },
 
   // =====================================
+  // PROGRAMAS
+  // =====================================
+  PROGRAMS: {
+    LIST: '/programs/',
+    CREATE: '/programs/',
+    GET_BY_ID: (id: string) => `/programs/${id}`,
+    UPDATE: (id: string) => `/programs/${id}`,
+    DELETE: (id: string) => `/programs/${id}`,
+    ADD_SUBJECT: (id: string) => `/programs/${id}/subjects`,
+    REMOVE_SUBJECT: (id: string, subjectId: string) => `/programs/${id}/subjects/${subjectId}`,
+  },
+
+  // =====================================
   // PADECIMIENTOS
   // =====================================
   AILMENTS: {

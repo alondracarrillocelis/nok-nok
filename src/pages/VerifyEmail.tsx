@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, CheckCircle2, Loader2, XCircle } from 'lucide-react';
 import BrandLogo from '../components/BrandLogo';
 import { auth } from '../lib/api';
+import doodles from '../assets/Doodles.png';
 
 export default function VerifyEmail() {
   const [searchParams] = useSearchParams();
@@ -42,6 +43,10 @@ export default function VerifyEmail() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-sky-50 via-cyan-50 to-emerald-50 px-4 py-10">
+      <div
+        className="absolute inset-0 bg-repeat opacity-12 pointer-events-none"
+        style={{ backgroundImage: `url(${doodles})`, backgroundSize: '420px' }}
+      ></div>
       <div className="relative z-10 w-full max-w-lg rounded-[2rem] bg-white/95 p-8 shadow-[0_28px_80px_rgba(14,116,144,0.16)] backdrop-blur sm:p-10">
         <div className="mb-8 text-center">
           <div className="mb-4 flex justify-center">

@@ -129,7 +129,7 @@ export default function Users() {
   const getRoleLabel = (role: string) => {
     switch (role) {
       case 'tutor':
-        return 'Tutor';
+        return 'Representante';
       case 'admin':
         return 'Administrador';
       default:
@@ -206,17 +206,6 @@ export default function Users() {
               <Plus size={20} />
               <span>Agregar Usuario</span>
             </button>
-            {/*
-            <button
-              onClick={() => fetchUsers()}
-              disabled
-              title="Recarga deshabilitada temporalmente"
-              className="flex items-center gap-2 bg-white border border-gray-200 text-gray-400 px-4 py-3 rounded-full font-semibold cursor-not-allowed"
-            >
-              <RefreshCw size={18} />
-              Recargar
-            </button>
-            */}
           </div>
 
           <div className="flex items-center space-x-4">
@@ -252,7 +241,7 @@ export default function Users() {
                 : 'bg-white text-gray-600 hover:bg-gray-100'
             }`}
           >
-            Tutores ({users.filter(u => u.role === 'tutor').length})
+            Representantes ({users.filter(u => u.role === 'tutor').length})
           </button>
           <button
             onClick={() => setRoleFilter('admin')}
@@ -485,7 +474,7 @@ export default function Users() {
                   onChange={(e) => setEditForm((prev) => ({ ...prev, role: e.target.value as 'tutor' | 'admin' }))}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
                 >
-                  <option value="tutor">Tutor</option>
+                  <option value="tutor">Representante</option>
                   <option value="admin">Administrador</option>
                 </select>
               </div>

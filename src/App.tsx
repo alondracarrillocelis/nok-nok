@@ -12,7 +12,7 @@ const VerifyEmail = lazy(() => import('./pages/VerifyEmail'));
 const Dashboard = lazy(() => import('./pages/Dashboard.tsx'));
 const Students = lazy(() => import('./pages/Students'));
 const Users = lazy(() => import('./pages/Users'));
-const Subjects = lazy(() => import('./pages/Subjects'));
+const Programs = lazy(() => import('./pages/Programs'));
 const Profile = lazy(() => import('./pages/Profile'));
 
 // Loading fallback component
@@ -96,15 +96,16 @@ function App() {
             }
           />
           <Route
-            path="/subjects"
+            path="/programs"
             element={
               <ProtectedRoute>
                 <Suspense fallback={<PageLoader />}>
-                  <Subjects />
+                  <Programs />
                 </Suspense>
               </ProtectedRoute>
             }
           />
+          <Route path="/subjects" element={<Navigate to="/programs" replace />} />
           <Route path="/" element={<Navigate to="/dashboard" replace />} />
         </Routes>
         <Toast />

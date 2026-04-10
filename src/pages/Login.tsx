@@ -3,11 +3,14 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import BrandLogo from '../components/BrandLogo';
+import FieldError from '../components/FieldError';
+import doodles from '../assets/Doodles.png';
 
 export default function Login() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
@@ -16,11 +19,22 @@ export default function Login() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
+    const nextErrors: { email?: string; password?: string } = {};
 
-    if (!email.trim() || !password.trim()) {
-      setError('Correo y contraseña son obligatorios');
+    if (!email.trim()) {
+      nextErrors.email = 'Escribe tu correo para continuar';
+    }
+
+    if (!password.trim()) {
+      nextErrors.password = 'Escribe tu contraseña para continuar';
+    }
+
+    if (nextErrors.email || nextErrors.password) {
+      setFieldErrors(nextErrors);
       return;
     }
+
+    setFieldErrors({});
 
     setLoading(true);
 
@@ -42,6 +56,11 @@ export default function Login() {
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-sky-50 via-cyan-50 to-emerald-50 px-4 py-10">
       <div className="absolute inset-0 overflow-hidden">
+        <div
+          className="absolute inset-0 bg-repeat opacity-12 pointer-events-none"
+          style={{ backgroundImage: `url(${doodles})`, backgroundSize: '420px' }}
+        ></div>
+        <div className="absolute inset-0 bg-white/50 pointer-events-none"></div>
         <div className="absolute top-10 right-20 h-64 w-64 rounded-full bg-cyan-200 opacity-30 blur-3xl"></div>
         <div className="absolute bottom-20 left-10 h-96 w-96 rounded-full bg-emerald-200 opacity-30 blur-3xl"></div>
         <div className="absolute top-1/2 right-1/4 h-80 w-80 rounded-full bg-blue-200 opacity-25 blur-3xl"></div>
@@ -63,7 +82,7 @@ export default function Login() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} noValidate className="space-y-5">
           <div className="space-y-2">
             <label className="block text-xs font-bold uppercase tracking-[0.2em] text-cyan-900/80">
               Correo electrónico
@@ -71,10 +90,20 @@ export default function Login() {
             <input
               type="email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-2xl bg-gray-100 px-4 py-3 text-gray-800 outline-none transition focus:bg-white focus:ring-4 focus:ring-gray-200"
-              required
+              onChange={(e) => {
+                setEmail(e.target.value);
+                if (fieldErrors.email) {
+                  setFieldErrors((prev) => ({ ...prev, email: undefined }));
+                }
+              }}
+              aria-invalid={Boolean(fieldErrors.email)}
+              className={`w-full rounded-2xl px-4 py-3 text-gray-800 outline-none transition focus:bg-white focus:ring-4 ${
+                fieldErrors.email
+                  ? 'bg-rose-50 ring-4 ring-rose-100'
+                  : 'bg-gray-100 focus:ring-gray-200'
+              }`}
             />
+            <FieldError message={fieldErrors.email} />
           </div>
 
           <div className="space-y-2">
@@ -85,9 +114,18 @@ export default function Login() {
               <input
                 type={showPassword ? 'text' : 'password'}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full rounded-2xl bg-gray-100 px-4 py-3 pr-11 text-gray-800 outline-none transition focus:bg-white focus:ring-4 focus:ring-gray-200"
-                required
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (fieldErrors.password) {
+                    setFieldErrors((prev) => ({ ...prev, password: undefined }));
+                  }
+                }}
+                aria-invalid={Boolean(fieldErrors.password)}
+                className={`w-full rounded-2xl px-4 py-3 pr-11 text-gray-800 outline-none transition focus:bg-white focus:ring-4 ${
+                  fieldErrors.password
+                    ? 'bg-rose-50 ring-4 ring-rose-100'
+                    : 'bg-gray-100 focus:ring-gray-200'
+                }`}
               />
               <button
                 type="button"
@@ -98,6 +136,7 @@ export default function Login() {
                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
+            <FieldError message={fieldErrors.password} />
           </div>
 
           {error && (

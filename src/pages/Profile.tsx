@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
 import { users, API_BASE_URL, sessionSettings } from '../lib/api';
 import { ENDPOINTS } from '../constants/endpoints';
 import Layout from '../components/Layout';
@@ -139,14 +138,6 @@ export default function Profile() {
             <h1 className="text-2xl font-bold text-gray-900">Configuración</h1>
             <p className="text-sm text-gray-500">Revisa y actualiza los datos de tu perfil.</p>
           </div>
-          <button
-            type="button"
-            onClick={() => fetchProfile()}
-            className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2.5 rounded-full font-semibold hover:bg-gray-50 transition-colors"
-          >
-            <RefreshCw size={18} />
-            Recargar
-          </button>
         </div>
 
         <div className="bg-white rounded-3xl shadow-lg p-8">
@@ -221,7 +212,7 @@ export default function Profile() {
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Rol</label>
                   <input
                     type="text"
-                    value={profile.role === 'admin' ? 'Administrador' : 'Tutor'}
+                    value={profile.role === 'admin' ? 'Administrador' : 'Representante'}
                     readOnly
                     className="w-full px-4 py-2 rounded-lg border border-gray-200 bg-gray-50 text-gray-600"
                   />

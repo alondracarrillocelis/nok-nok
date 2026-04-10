@@ -13,8 +13,8 @@ import {
   LineChart,
   Line,
 } from 'recharts';
-import { RefreshCw } from 'lucide-react';
-import { dashboard, students, Student } from '../lib/api';
+import { Enrollment, enrollments, students, Student } from '../lib/api';
+import { getEnrollmentTypeLabel, sortEnrollmentsByDate } from '../lib/academy';
 import Layout from '../components/Layout';
 import { showToast } from '../components/Toast';
 
@@ -40,18 +40,107 @@ interface MonthPoint {
 
 interface ExpiringEnrollment {
   id: string;
-  dueDate?: string | null;
-  student?: {
-    firstName?: string;
-    paternalSurname?: string;
-    maternalSurname?: string | null;
-  };
+  studentName: string;
+  program: string;
+  enrollmentDate: string;
+  enrollmentType: string;
+  dueDate: string | null;
+  dueLabel: string;
+  statusLabel: string;
+  daysUntilDue: number | null;
 }
 
 const STATUS_COLORS = ['#22c55e', '#f59e0b', '#ef4444'];
+const UPCOMING_THRESHOLD_DAYS = 7;
+
+const formatStudentName = (student?: Pick<Student, 'firstName' | 'paternalSurname' | 'maternalSurname'> | null) => {
+  if (!student) return 'Alumno';
+
+  return [student.firstName, student.paternalSurname, student.maternalSurname].filter(Boolean).join(' ') || 'Alumno';
+};
+
+const isValidDate = (value?: string | null) => {
+  if (!value) return false;
+  return !Number.isNaN(new Date(value).getTime());
+};
+
+const addDays = (date: Date, days: number) => {
+  const nextDate = new Date(date);
+  nextDate.setDate(nextDate.getDate() + days);
+  return nextDate;
+};
+
+const addMonths = (date: Date, months: number) => {
+  const nextDate = new Date(date);
+  nextDate.setMonth(nextDate.getMonth() + months);
+  return nextDate;
+};
+
+const getEnrollmentDueDate = (enrollment: Enrollment) => {
+  if (isValidDate(enrollment.dueDate)) {
+    return new Date(enrollment.dueDate as string);
+  }
+
+  if (!isValidDate(enrollment.enrollmentDate)) {
+    return null;
+  }
+
+  const enrollmentDate = new Date(enrollment.enrollmentDate);
+
+  switch (enrollment.enrollmentType) {
+    case 'semanal':
+      return addDays(enrollmentDate, 7);
+    case 'mensual':
+      return addMonths(enrollmentDate, 1);
+    default:
+      return null;
+  }
+};
+
+const getDueStatusLabel = (daysUntilDue: number | null) => {
+  if (daysUntilDue === null) return 'Sin fecha de vencimiento';
+  if (daysUntilDue < 0) return 'Vencida';
+  if (daysUntilDue === 0) return 'Vence hoy';
+  if (daysUntilDue <= UPCOMING_THRESHOLD_DAYS) return `Vence en ${daysUntilDue} dia${daysUntilDue === 1 ? '' : 's'}`;
+  return 'Vigente';
+};
+
+const getDueLabel = (dueDate: Date | null) => {
+  if (!dueDate) return 'Sin fecha';
+  return dueDate.toLocaleDateString('es-MX');
+};
+
+const getDuePriority = (daysUntilDue: number | null) => {
+  if (daysUntilDue === null) return Number.MAX_SAFE_INTEGER;
+  if (daysUntilDue < 0) return Number.MAX_SAFE_INTEGER - 1;
+  return daysUntilDue;
+};
+
+const getProgramNameFromEnrollment = (enrollment?: Enrollment, student?: Student) => {
+  return enrollment?.program || student?.program || student?.currentLevel || 'Sin programa';
+};
+
+const loadAllStudents = async () => {
+  const firstPage = await students.list({ page: 1, limit: 100 });
+  const totalPages = firstPage.pagination?.totalPages || 1;
+
+  if (totalPages <= 1) {
+    return firstPage.data || [];
+  }
+
+  const remainingPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) => students.list({ page: index + 2, limit: 100 }))
+  );
+
+  return [
+    ...(firstPage.data || []),
+    ...remainingPages.flatMap((response) => response.data || []),
+  ];
+};
 
 export default function Dashboard() {
   const [allStudents, setAllStudents] = useState<Student[]>([]);
+  const [allEnrollments, setAllEnrollments] = useState<Enrollment[]>([]);
   const [loading, setLoading] = useState(true);
   const [expiringEnrollments, setExpiringEnrollments] = useState<ExpiringEnrollment[]>([]);
   const [programSlide, setProgramSlide] = useState(0);
@@ -63,17 +152,57 @@ export default function Dashboard() {
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      const [studentsResponse, statsResponse] = await Promise.all([
-        students.list({ page: 1, limit: 100 }),
-        dashboard.getStats(),
-      ]);
+      const [studentsData, enrollmentsResponse] = await Promise.all([loadAllStudents(), enrollments.list()]);
+      const nextEnrollments = enrollmentsResponse.data || [];
+      const studentsById = new Map(studentsData.map((student) => [student.id, student]));
 
-      setAllStudents(studentsResponse.data || []);
+      setAllStudents(studentsData);
+      setAllEnrollments(nextEnrollments);
 
-      const stats = statsResponse as {
-        expiringEnrollments?: ExpiringEnrollment[];
-      };
-      setExpiringEnrollments(stats.expiringEnrollments || []);
+      const latestEnrollments = Array.from(
+        nextEnrollments.reduce((map, enrollment) => {
+          const previous = map.get(enrollment.studentId);
+          if (!previous) {
+            map.set(enrollment.studentId, enrollment);
+            return map;
+          }
+
+          const sorted = sortEnrollmentsByDate([previous, enrollment]);
+          map.set(enrollment.studentId, sorted[0]);
+          return map;
+        }, new Map<string, Enrollment>()).values()
+      );
+
+      const nextExpiringEnrollments = latestEnrollments
+        .map((enrollment) => {
+          const student = studentsById.get(enrollment.studentId);
+          const dueDate = getEnrollmentDueDate(enrollment);
+          const daysUntilDue = dueDate
+            ? Math.ceil((dueDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+            : null;
+
+          return {
+            id: enrollment.id,
+            studentName: formatStudentName(student),
+            program: getProgramNameFromEnrollment(enrollment, student),
+            enrollmentDate: isValidDate(enrollment.enrollmentDate)
+              ? new Date(enrollment.enrollmentDate).toLocaleDateString('es-MX')
+              : 'Sin fecha',
+            enrollmentType: getEnrollmentTypeLabel(enrollment.enrollmentType),
+            dueDate: dueDate ? dueDate.toISOString() : null,
+            dueLabel: getDueLabel(dueDate),
+            statusLabel: getDueStatusLabel(daysUntilDue),
+            daysUntilDue,
+          } satisfies ExpiringEnrollment;
+        })
+        .filter((enrollment) => enrollment.dueDate || enrollment.enrollmentType !== 'Sin tipo')
+        .sort((left, right) => {
+          const dueComparison = getDuePriority(left.daysUntilDue) - getDuePriority(right.daysUntilDue);
+          if (dueComparison !== 0) return dueComparison;
+          return left.studentName.localeCompare(right.studentName, 'es');
+        });
+
+      setExpiringEnrollments(nextExpiringEnrollments);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
       const message = error instanceof Error ? error.message : 'Error al cargar estadísticas';
@@ -87,15 +216,15 @@ export default function Dashboard() {
 
   const statusCounts = useMemo(() => {
     const counts = {
-      activo: 0,
-      pendiente: 0,
-      baja: 0,
+      active: 0,
+      inactive: 0,
+      dropped: 0,
     };
 
     for (const student of allStudents) {
-      if (student.status === 'activo') counts.activo += 1;
-      else if (student.status === 'pendiente') counts.pendiente += 1;
-      else if (student.status === 'baja') counts.baja += 1;
+      if (student.status === 'active') counts.active += 1;
+      else if (student.status === 'inactive') counts.inactive += 1;
+      else if (student.status === 'dropped') counts.dropped += 1;
     }
 
     return counts;
@@ -103,20 +232,20 @@ export default function Dashboard() {
 
   const thisMonthEnrollments = useMemo(() => {
     const now = new Date();
-    return allStudents.filter((s) => {
-      if (!s.enrollmentDate) return false;
-      const d = new Date(s.enrollmentDate);
+    return allEnrollments.filter((enrollment) => {
+      if (!isValidDate(enrollment.enrollmentDate)) return false;
+      const d = new Date(enrollment.enrollmentDate);
       return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
     }).length;
-  }, [allStudents]);
+  }, [allEnrollments]);
 
   const statusChartData: StatusPoint[] = [
-    { name: 'Activos', value: statusCounts.activo },
-    { name: 'Pendientes', value: statusCounts.pendiente },
-    { name: 'Baja', value: statusCounts.baja },
+    { name: 'Activos', value: statusCounts.active },
+    { name: 'Inactivos', value: statusCounts.inactive },
+    { name: 'Dados de baja', value: statusCounts.dropped },
   ];
 
-  const totalDropouts = statusCounts.baja;
+  const totalDropouts = statusCounts.dropped;
 
   const levelChartData: LevelPoint[] = useMemo(() => {
     const map = new Map<string, number>();
@@ -128,13 +257,31 @@ export default function Dashboard() {
   }, [allStudents]);
 
   const programChartData: ProgramPoint[] = useMemo(() => {
+    const studentsById = new Map(allStudents.map((student) => [student.id, student]));
     const map = new Map<string, number>();
-    for (const student of allStudents) {
-      const program = student.program || 'Sin programa';
+
+    const latestEnrollments = Array.from(
+      allEnrollments.reduce((accumulator, enrollment) => {
+        const previous = accumulator.get(enrollment.studentId);
+        if (!previous) {
+          accumulator.set(enrollment.studentId, enrollment);
+          return accumulator;
+        }
+
+        const sorted = sortEnrollmentsByDate([previous, enrollment]);
+        accumulator.set(enrollment.studentId, sorted[0]);
+        return accumulator;
+      }, new Map<string, Enrollment>()).values()
+    );
+
+    for (const enrollment of latestEnrollments) {
+      const student = studentsById.get(enrollment.studentId);
+      const program = getProgramNameFromEnrollment(enrollment, student);
       map.set(program, (map.get(program) || 0) + 1);
     }
+
     return Array.from(map.entries()).map(([program, count]) => ({ program, count }));
-  }, [allStudents]);
+  }, [allEnrollments, allStudents]);
 
   const programSlides = useMemo(() => {
     if (programChartData.length === 0) {
@@ -193,16 +340,16 @@ export default function Dashboard() {
       const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const monthLabel = date.toLocaleString('es-MX', { month: 'short' }).toUpperCase();
-      const altas = allStudents.filter((s) => {
-        if (!s.enrollmentDate) return false;
-        const d = new Date(s.enrollmentDate);
+      const altas = allEnrollments.filter((enrollment) => {
+        if (!isValidDate(enrollment.enrollmentDate)) return false;
+        const d = new Date(enrollment.enrollmentDate);
         const dKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         return dKey === key;
       }).length;
       months.push({ month: monthLabel, altas });
     }
     return months;
-  }, [allStudents]);
+  }, [allEnrollments]);
 
   if (loading) {
     return (
@@ -217,17 +364,6 @@ export default function Dashboard() {
   return (
     <Layout>
       <div className="space-y-6">
-        <div className="flex items-center justify-end">
-          <button
-            type="button"
-            onClick={() => void fetchDashboardData()}
-            className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2.5 rounded-full font-semibold hover:bg-gray-50 transition-colors"
-          >
-            <RefreshCw size={18} />
-            Recargar
-          </button>
-        </div>
-
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
           <div className="bg-white rounded-3xl shadow-lg p-6">
             <p className="text-xs uppercase text-gray-500 font-semibold">Total Alumnos</p>
@@ -235,11 +371,11 @@ export default function Dashboard() {
           </div>
           <div className="bg-white rounded-3xl shadow-lg p-6">
             <p className="text-xs uppercase text-gray-500 font-semibold">Activos</p>
-            <p className="text-5xl font-black text-green-600 mt-2">{statusCounts.activo}</p>
+            <p className="text-5xl font-black text-green-600 mt-2">{statusCounts.active}</p>
           </div>
           <div className="bg-white rounded-3xl shadow-lg p-6">
-            <p className="text-xs uppercase text-gray-500 font-semibold">Pendientes</p>
-            <p className="text-5xl font-black text-yellow-500 mt-2">{statusCounts.pendiente}</p>
+            <p className="text-xs uppercase text-gray-500 font-semibold">Inactivos</p>
+            <p className="text-5xl font-black text-yellow-500 mt-2">{statusCounts.inactive}</p>
           </div>
           <div className="bg-white rounded-3xl shadow-lg p-6">
             <p className="text-xs uppercase text-gray-500 font-semibold">Bajas</p>
@@ -365,20 +501,22 @@ export default function Dashboard() {
                 <thead>
                   <tr className="text-left text-gray-500 border-b">
                     <th className="py-2">Alumno</th>
+                    <th className="py-2">Programa</th>
+                    <th className="py-2">Fecha de inscripcion</th>
+                    <th className="py-2">Tipo</th>
                     <th className="py-2">Vence</th>
+                    <th className="py-2">Estado</th>
                   </tr>
                 </thead>
                 <tbody>
                   {expiringEnrollments.slice(0, 10).map((enrollment) => (
                     <tr key={enrollment.id} className="border-b border-gray-100">
-                      <td className="py-2 text-gray-700">
-                        {[enrollment.student?.firstName, enrollment.student?.paternalSurname, enrollment.student?.maternalSurname]
-                          .filter(Boolean)
-                          .join(' ') || 'Alumno'}
-                      </td>
-                      <td className="py-2 text-gray-700">
-                        {enrollment.dueDate ? new Date(enrollment.dueDate).toLocaleDateString('es-MX') : 'Sin fecha'}
-                      </td>
+                      <td className="py-2 text-gray-700">{enrollment.studentName}</td>
+                      <td className="py-2 text-gray-700">{enrollment.program}</td>
+                      <td className="py-2 text-gray-700">{enrollment.enrollmentDate}</td>
+                      <td className="py-2 text-gray-700">{enrollment.enrollmentType}</td>
+                      <td className="py-2 text-gray-700">{enrollment.dueLabel}</td>
+                      <td className="py-2 text-gray-700">{enrollment.statusLabel}</td>
                     </tr>
                   ))}
                 </tbody>

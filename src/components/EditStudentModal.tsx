@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { X, FileText } from 'lucide-react';
-import { students as studentsApi, subjects as subjectsApi, users as usersApi, ailments as ailmentsApi, studentAilments, studentSubjects, enrollments, documents } from '../lib/api';
+import { students as studentsApi, programs as programsApi, users as usersApi, ailments as ailmentsApi, studentAilments, enrollments, documents } from '../lib/api';
+import type { AilmentSeverity } from '../lib/api';
+import { ENROLLMENT_TYPE_OPTIONS, EnrollmentType, getAvailableProgramOptions, ProgramOption, sortEnrollmentsByDate } from '../lib/academy';
 import { showToast } from './Toast';
 import ConfirmationModal from './ConfirmationModal';
 import DragDropUpload from './DragDropUpload';
@@ -8,13 +10,7 @@ import AilmentsStepSection from './AilmentsStepSection';
 import FieldError from './FieldError';
 import StudentWizardActions from './StudentWizardActions';
 import StudentWizardSteps from './StudentWizardSteps';
-import { formatPhoneMask, isValidEmail, isValidPhone } from '../lib/validators';
-
-interface Subject {
-  id: string;
-  name: string;
-  code: string;
-}
+import { formatPhoneMask, isValidPhone } from '../lib/validators';
 
 interface Ailment {
   id: string;
@@ -42,20 +38,14 @@ interface ApiUser {
   role: string;
 }
 
-interface ApiStudentSubject {
-  id: string;
-  subjectId?: string;
-  subject?: { id: string };
-}
-
 interface EditStudentModalProps {
   studentId: string;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-type Step = 'personal' | 'academic' | 'inscription' | 'tutor' | 'ailments' | 'subjects';
-type GenderValue = '' | 'femenino' | 'masculino' | 'otro' | 'prefiero_no_decirlo';
+type Step = 'personal' | 'inscription' | 'tutor' | 'ailments';
+type GenderValue = '' | 'male' | 'female' | 'other';
 
 export default function EditStudentModal({ studentId, onClose, onSuccess }: EditStudentModalProps) {
   const [currentStep, setCurrentStep] = useState<Step>('personal');
@@ -69,26 +59,22 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
     enrollmentDate: '',
     currentLevel: 'Principiante',
     currentGrade: 'Principiante',
-    program: 'Programa I',
+    program: '',
     shift: 'Matutino',
-    representative: 'Representante I',
-    tutorName: '',
-    tutorPhone: '',
-    tutorEmail: '',
-    tutorId: '',
+    representative: '',
+    emergencyContactName: '',
+    emergencyContactPhone: '',
     folio: '',
     inscriptionDate: '',
-    inscriptionType: 'semanal',
-    inscriptionProgram: 'Programa I',
+    inscriptionType: 'semanal' as EnrollmentType,
+    inscriptionProgram: '',
     representativeId: '',
     enrollmentId: '',
   };
   const [formData, setFormData] = useState(initialFormData);
   const [savedFormData, setSavedFormData] = useState(initialFormData);
   const [showUnsavedChangesConfirm, setShowUnsavedChangesConfirm] = useState(false);
-  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
-  const [savedSelectedSubjects, setSavedSelectedSubjects] = useState<string[]>([]);
-  const [availableSubjects, setAvailableSubjects] = useState<Subject[]>([]);
+  const [availablePrograms, setAvailablePrograms] = useState<ProgramOption[]>([]);
   const [selectedAilments, setSelectedAilments] = useState<string[]>([]);
   const [savedSelectedAilments, setSavedSelectedAilments] = useState<string[]>([]);
   const [availableAilments, setAvailableAilments] = useState<Ailment[]>([]);
@@ -108,14 +94,24 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
     description: '',
     medication: '',
     medicalDescription: '',
-    severity: 'moderado' as 'leve' | 'moderado' | 'severo',
+    severity: 'moderate' as AilmentSeverity,
     notes: '',
+    diagnosisDate: '',
+    assignmentNotes: '',
   });
   const [creatingAilment, setCreatingAilment] = useState(false);
 
+  const handleRepresentativeChange = (userId: string) => {
+    const selectedUser = availableUsers.find((user) => user.id === userId);
+    setFormData((prev) => ({
+      ...prev,
+      representativeId: userId,
+      representative: selectedUser?.name || '',
+    }));
+  };
+
   const hasUnsavedChanges = () => {
     return JSON.stringify(formData) !== JSON.stringify(savedFormData) || 
-           JSON.stringify(selectedSubjects) !== JSON.stringify(savedSelectedSubjects) ||
            JSON.stringify(selectedAilments) !== JSON.stringify(savedSelectedAilments) ||
            JSON.stringify(ailmentDetails) !== JSON.stringify(savedAilmentDetails) ||
            documentFiles.length > 0;
@@ -139,29 +135,28 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
       setIsLoading(true);
       // Fetch student
       const student = await studentsApi.getById(studentId);
+      let latestEnrollmentRepresentativeId = '';
 
       if (student) {
         const formValues = {
           firstName: student.firstName || '',
           paternalSurname: student.paternalSurname || '',
           maternalSurname: student.maternalSurname || '',
-          gender: '' as GenderValue,
+          gender: student.gender || '' as GenderValue,
           birthDate: student.birthDate || '',
           enrollmentNumber: student.enrollmentNumber || '',
           enrollmentDate: student.enrollmentDate || '',
           currentLevel: student.currentLevel || 'Principiante',
           currentGrade: student.currentGrade || 'Principiante',
-          program: student.program || 'Programa I',
+          program: student.program || '',
           shift: student.shift || 'Matutino',
-          representative: student.representative || 'Representante I',
-          tutorName: student.tutors && student.tutors.length > 0 ? student.tutors[0].name : '',
-          tutorPhone: student.tutors && student.tutors.length > 0 ? student.tutors[0].phone || '' : '',
-          tutorEmail: '',
-          tutorId: '',
+          representative: student.representative || '',
+          emergencyContactName: student.emergencyContactName || '',
+          emergencyContactPhone: student.emergencyContactPhone || '',
           folio: '',
           inscriptionDate: student.enrollmentDate || '',
-          inscriptionType: 'semanal',
-          inscriptionProgram: student.program || 'Programa I',
+          inscriptionType: 'semanal' as EnrollmentType,
+          inscriptionProgram: student.program || '',
           representativeId: '',
           enrollmentId: '',
         };
@@ -169,25 +164,21 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
         setSavedFormData(formValues);
       }
 
-      // Fetch subjects
-      const subjectsResponse = await subjectsApi.list();
-      const subjectsList = Array.isArray(subjectsResponse)
-        ? subjectsResponse
-        : Array.isArray((subjectsResponse as { data?: Subject[] }).data)
-          ? (subjectsResponse as { data: Subject[] }).data
-          : [];
-      setAvailableSubjects(subjectsList as Subject[]);
-
-      setSelectedSubjects(
-        (student.subjects || [])
-          .map((item) => item.subject.id)
-          .filter((id): id is string => Boolean(id))
-      );
-
-      const subjectIds = (student.subjects || [])
-        .map((item) => item.subject.id)
-        .filter((id): id is string => Boolean(id));
-      setSavedSelectedSubjects(subjectIds);
+      const programsResponse = await programsApi.list();
+      const nextPrograms = getAvailableProgramOptions(programsResponse, student.program || '');
+      setAvailablePrograms(nextPrograms);
+      if (student && !student.program && nextPrograms.length > 0) {
+        setFormData((prev) => ({
+          ...prev,
+          program: prev.program || prev.inscriptionProgram || nextPrograms[0].id,
+          inscriptionProgram: prev.inscriptionProgram || prev.program || nextPrograms[0].id,
+        }));
+        setSavedFormData((prev) => ({
+          ...prev,
+          program: prev.program || prev.inscriptionProgram || nextPrograms[0].id,
+          inscriptionProgram: prev.inscriptionProgram || prev.program || nextPrograms[0].id,
+        }));
+      }
 
       // Fetch all ailments
       const ailmentsResponse = await ailmentsApi.list();
@@ -214,23 +205,55 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
       // Fetch enrollment/inscription
       const enrollmentsResponse = await enrollments.list(studentId);
       if (enrollmentsResponse.data && enrollmentsResponse.data.length > 0) {
-        const enrollment = enrollmentsResponse.data[0];
+        const enrollment = sortEnrollmentsByDate(enrollmentsResponse.data)[0];
+        const selectedProgramId = enrollment.programId || enrollment.program || '';
+        latestEnrollmentRepresentativeId = enrollment.representativeId || '';
         setFormData(prev => ({
           ...prev,
           inscriptionDate: enrollment.enrollmentDate,
-          inscriptionProgram: enrollment.program || 'Programa I',
+          inscriptionType: (enrollment.enrollmentType as EnrollmentType) || 'semanal',
+          program: selectedProgramId || prev.program,
+          inscriptionProgram: selectedProgramId || prev.program,
+          representativeId: enrollment.representativeId || prev.representativeId,
+          enrollmentId: enrollment.id,
+        }));
+        setSavedFormData(prev => ({
+          ...prev,
+          inscriptionDate: enrollment.enrollmentDate,
+          inscriptionType: (enrollment.enrollmentType as EnrollmentType) || 'semanal',
+          program: selectedProgramId || prev.program,
+          inscriptionProgram: selectedProgramId || prev.program,
+          representativeId: enrollment.representativeId || prev.representativeId,
           enrollmentId: enrollment.id,
         }));
       }
 
       // Fetch all users/representatives
       const usersResponse = await usersApi.list();
-      setAvailableUsers(usersResponse.map((u: ApiUser) => ({
+      const mappedUsers = usersResponse.map((u: ApiUser) => ({
         id: u.id,
         name: [u.firstName, u.paternalSurname, u.maternalSurname].filter(Boolean).join(' '),
         email: u.email,
         role: u.role,
-      })));
+      }));
+      setAvailableUsers(mappedUsers);
+
+      const matchedRepresentative = latestEnrollmentRepresentativeId
+        ? mappedUsers.find((user) => user.id === latestEnrollmentRepresentativeId)
+        : mappedUsers.find((user) => user.name === student.representative);
+
+      if (matchedRepresentative) {
+        setFormData((prev) => ({
+          ...prev,
+          representativeId: matchedRepresentative.id,
+          representative: matchedRepresentative.name,
+        }));
+        setSavedFormData((prev) => ({
+          ...prev,
+          representativeId: matchedRepresentative.id,
+          representative: matchedRepresentative.name,
+        }));
+      }
     } catch (error) {
       console.error('Error fetching student data:', error);
       showToast('Error al cargar datos del alumno', 'error');
@@ -258,12 +281,15 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
     if (!formData.enrollmentNumber.trim()) {
       newErrors.enrollmentNumber = 'La matrícula es obligatoria';
     }
+    if (!formData.gender) {
+      newErrors.gender = 'El género es obligatorio';
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const validateAcademicStep = (): boolean => {
+  const validateInscriptionStep = (): boolean => {
     const newErrors: Record<string, string> = {};
 
     if (!formData.currentLevel) {
@@ -271,6 +297,12 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
     }
     if (!formData.shift) {
       newErrors.shift = 'El turno es obligatorio';
+    }
+    if (!formData.currentGrade.trim()) {
+      newErrors.currentGrade = 'El grado actual es obligatorio';
+    }
+    if (!formData.program) {
+      newErrors.program = 'El programa es obligatorio';
     }
 
     setErrors(newErrors);
@@ -280,16 +312,13 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
   const validateStep = (): boolean => {
     if (currentStep === 'personal') {
       return validatePersonalStep();
-    } else if (currentStep === 'academic') {
-      return validateAcademicStep();
+    } else if (currentStep === 'inscription') {
+      return validateInscriptionStep();
     } else if (currentStep === 'tutor') {
       const newErrors: Record<string, string> = {};
 
-      if (formData.tutorPhone.trim() && !isValidPhone(formData.tutorPhone)) {
-        newErrors.tutorPhone = 'El teléfono debe tener entre 10 y 15 dígitos';
-      }
-      if (formData.tutorEmail.trim() && !isValidEmail(formData.tutorEmail)) {
-        newErrors.tutorEmail = 'Ingresa un correo electrónico válido';
+      if (formData.emergencyContactPhone.trim() && !isValidPhone(formData.emergencyContactPhone)) {
+        newErrors.emergencyContactPhone = 'El teléfono debe tener entre 10 y 15 dígitos';
       }
 
       setErrors(newErrors);
@@ -303,19 +332,11 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
       return;
     }
 
-    const stepOrder: Step[] = ['personal', 'academic', 'inscription', 'tutor', 'ailments', 'subjects'];
+    const stepOrder: Step[] = ['personal', 'inscription', 'tutor', 'ailments'];
     const currentIndex = stepOrder.indexOf(currentStep);
     if (currentIndex < stepOrder.length - 1) {
       setCurrentStep(stepOrder[currentIndex + 1]);
     }
-  };
-
-  const toggleSubject = (subjectId: string) => {
-    setSelectedSubjects(prev =>
-      prev.includes(subjectId)
-        ? prev.filter(id => id !== subjectId)
-        : [...prev, subjectId]
-    );
   };
 
   const handleCreateAilment = async () => {
@@ -331,13 +352,30 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
         medication: newAilmentForm.medication.trim(),
         medicalDescription: newAilmentForm.medicalDescription.trim(),
         severity: newAilmentForm.severity,
+        status: 'active',
         notes: newAilmentForm.notes.trim(),
       });
 
       if (newAilment) {
         setAvailableAilments(prev => [...prev, newAilment as Ailment]);
         setSelectedAilments(prev => [...prev, newAilment.id]);
-        setNewAilmentForm({ name: '', description: '', medication: '', medicalDescription: '', severity: 'moderado', notes: '' });
+        setAilmentDetails((prev) => ({
+          ...prev,
+          [newAilment.id]: {
+            diagnosisDate: newAilmentForm.diagnosisDate,
+            notes: newAilmentForm.assignmentNotes.trim(),
+          },
+        }));
+        setNewAilmentForm({
+          name: '',
+          description: '',
+          medication: '',
+          medicalDescription: '',
+          severity: 'moderate',
+          notes: '',
+          diagnosisDate: '',
+          assignmentNotes: '',
+        });
         showToast('Padecimiento creado y asignado al alumno', 'success');
       }
     } catch (error) {
@@ -362,41 +400,34 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
     setConfirmLoading(true);
     setIsSaving(true);
     try {
+      const selectedProgram = availablePrograms.find((program) => program.id === formData.program);
+
+      if (!formData.gender) {
+        showToast('El género es obligatorio', 'error');
+        setErrors((prev) => ({ ...prev, gender: 'El género es obligatorio' }));
+        return;
+      }
+
       // Update student
       const studentData = {
         firstName: formData.firstName.trim(),
         paternalSurname: formData.paternalSurname.trim(),
-        maternalSurname: formData.maternalSurname.trim() || null,
+        maternalSurname: formData.maternalSurname.trim() || undefined,
         birthDate: formData.birthDate || undefined,
         curp: undefined,
         enrollmentNumber: formData.enrollmentNumber.trim(),
         enrollmentDate: formData.enrollmentDate || formData.inscriptionDate || undefined,
         currentLevel: formData.currentLevel,
         currentGrade: formData.currentGrade,
-        program: formData.program,
         shift: formData.shift,
-        representative: formData.representative,
-        status: 'activo' as const,
+        representative: formData.representative || undefined,
+        gender: formData.gender,
+        emergencyContactName: formData.emergencyContactName.trim() || undefined,
+        emergencyContactPhone: formData.emergencyContactPhone.trim() || undefined,
+        status: 'active' as const,
       };
 
       await studentsApi.update(studentId, studentData);
-
-      // Update subjects - delete existing and create new
-      // First get current student subjects to delete them
-      const currentStudentSubjects = await studentSubjects.list(studentId);
-      for (const ss of currentStudentSubjects as ApiStudentSubject[]) {
-        await studentSubjects.delete(ss.id);
-      }
-
-      // Create new student subjects
-      if (selectedSubjects.length > 0) {
-        for (const subjectId of selectedSubjects) {
-          await studentSubjects.create({
-            studentId,
-            subjectId,
-          });
-        }
-      }
 
       // Update ailments - delete existing and create new
       // First get current student ailments to delete them
@@ -411,6 +442,8 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
           await studentAilments.create({
             studentId,
             ailmentId,
+            status: 'active',
+            diagnosisDate: ailmentDetails[ailmentId]?.diagnosisDate || undefined,
             notes: ailmentDetails[ailmentId]?.notes || undefined,
           });
         }
@@ -421,16 +454,22 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
         // Update existing enrollment
         await enrollments.update(formData.enrollmentId, {
           studentId,
-          program: formData.inscriptionProgram,
-          status: 'activo',
+          programId: formData.program,
+          program: selectedProgram?.name,
+          enrollmentType: formData.inscriptionType,
+          representativeId: formData.representativeId || undefined,
+          status: 'active',
           enrollmentDate: formData.inscriptionDate,
         });
       } else {
         // Create new enrollment
         await enrollments.create({
           studentId,
-          program: formData.inscriptionProgram,
-          status: 'activo',
+          programId: formData.program,
+          program: selectedProgram?.name,
+          enrollmentType: formData.inscriptionType,
+          representativeId: formData.representativeId || undefined,
+          status: 'active',
           enrollmentDate: formData.inscriptionDate,
         });
       }
@@ -475,11 +514,9 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
 
   const steps = [
     { id: 'personal', label: 'Info. Personal' },
-    { id: 'academic', label: 'Info. Académica' },
     { id: 'inscription', label: 'Inscripción' },
-    { id: 'tutor', label: 'Tutor' },
+    { id: 'tutor', label: 'Contacto de emergencia' },
     { id: 'ailments', label: 'Padecimientos' },
-    { id: 'subjects', label: 'Materias' },
   ];
 
   return (
@@ -565,14 +602,18 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                   <select
                     value={formData.gender}
                     onChange={(e) => updateField('gender', e.target.value)}
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 ${
+                      errors.gender
+                        ? 'border-red-400 focus:ring-red-500'
+                        : 'border-gray-300 focus:ring-blue-500'
+                    }`}
                   >
                     <option value="">Seleccionar</option>
-                    <option value="femenino">Femenino</option>
-                    <option value="masculino">Masculino</option>
-                    <option value="otro">Otro</option>
-                    <option value="prefiero_no_decirlo">Prefiero no decirlo</option>
+                    <option value="male">Masculino</option>
+                    <option value="female">Femenino</option>
+                    <option value="other">Otro</option>
                   </select>
+                  <FieldError message={errors.gender} />
                 </div>
               </div>
 
@@ -612,7 +653,7 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
             </div>
           )}
 
-          {currentStep === 'academic' && (
+          {currentStep === 'inscription' && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -643,25 +684,17 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                     value={formData.currentGrade}
                     onChange={(e) => updateField('currentGrade', e.target.value)}
                     placeholder="Principiante"
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 ${
+                      errors.currentGrade
+                        ? 'border-red-400 focus:ring-red-500'
+                        : 'border-gray-300 focus:ring-blue-500'
+                    }`}
                   />
+                  <FieldError message={errors.currentGrade} />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Programa
-                  </label>
-                  <select
-                    value={formData.program}
-                    onChange={(e) => updateField('program', e.target.value)}
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="Programa I">Programa I</option>
-                    <option value="Programa II">Programa II</option>
-                  </select>
-                </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Turno *
@@ -680,26 +713,33 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                   </select>
                   <FieldError message={errors.shift} />
                 </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Programa
+                  </label>
+                  <select
+                    value={formData.program}
+                    onChange={(e) => {
+                      updateField('program', e.target.value);
+                      updateField('inscriptionProgram', e.target.value);
+                    }}
+                    className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 ${
+                      errors.program
+                        ? 'border-red-400 focus:ring-red-500'
+                        : 'border-gray-300 focus:ring-blue-500'
+                    }`}
+                  >
+                    <option value="">Seleccionar programa</option>
+                    {availablePrograms.map((program) => (
+                      <option key={program.id} value={program.id}>
+                        {program.description ? `${program.name} - ${program.description}` : program.name}
+                      </option>
+                    ))}
+                  </select>
+                  <FieldError message={errors.program} />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Representante
-                </label>
-                <select
-                  value={formData.representative}
-                  onChange={(e) => updateField('representative', e.target.value)}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="Representante I">Representante I</option>
-                  <option value="Representante II">Representante II</option>
-                </select>
-              </div>
-            </div>
-          )}
-
-          {currentStep === 'inscription' && (
-            <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -727,34 +767,21 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Tipo de Inscripción
-                  </label>
-                  <select
-                    value={formData.inscriptionType}
-                    onChange={(e) => updateField('inscriptionType', e.target.value)}
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="semanal">Semanal</option>
-                    <option value="trimestral">Trimestral</option>
-                    <option value="anual">Anual</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Programa
-                  </label>
-                  <select
-                    value={formData.inscriptionProgram}
-                    onChange={(e) => updateField('inscriptionProgram', e.target.value)}
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="Programa I">Programa I</option>
-                    <option value="Programa II">Programa II</option>
-                  </select>
-                </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Tipo de Inscripción
+                </label>
+                <select
+                  value={formData.inscriptionType}
+                  onChange={(e) => updateField('inscriptionType', e.target.value)}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {ENROLLMENT_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -763,7 +790,7 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                 </label>
                 <select
                   value={formData.representativeId}
-                  onChange={(e) => updateField('representativeId', e.target.value)}
+                  onChange={(e) => handleRepresentativeChange(e.target.value)}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">Seleccionar representante...</option>
@@ -817,13 +844,13 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Nombre del Tutor
+                  Nombre del contacto de emergencia
                 </label>
                 <input
                   type="text"
-                  value={formData.tutorName}
-                  onChange={(e) => updateField('tutorName', e.target.value)}
-                  placeholder="Nombre del tutor"
+                  value={formData.emergencyContactName}
+                  onChange={(e) => updateField('emergencyContactName', e.target.value)}
+                  placeholder="Nombre del contacto"
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -834,39 +861,21 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                 </label>
                 <input
                   type="tel"
-                  value={formData.tutorPhone}
-                  onChange={(e) => updateField('tutorPhone', formatPhoneMask(e.target.value))}
+                  value={formData.emergencyContactPhone}
+                  onChange={(e) => updateField('emergencyContactPhone', formatPhoneMask(e.target.value))}
                   placeholder="555-123-4567"
                   className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 ${
-                    errors.tutorPhone
+                    errors.emergencyContactPhone
                       ? 'border-red-400 focus:ring-red-500'
                       : 'border-gray-300 focus:ring-blue-500'
                   }`}
                 />
-                <FieldError message={errors.tutorPhone} />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Correo Electrónico
-                </label>
-                <input
-                  type="email"
-                  value={formData.tutorEmail}
-                  onChange={(e) => updateField('tutorEmail', e.target.value)}
-                  placeholder="tutor@email.com"
-                  className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 ${
-                    errors.tutorEmail
-                      ? 'border-red-400 focus:ring-red-500'
-                      : 'border-gray-300 focus:ring-blue-500'
-                  }`}
-                />
-                <FieldError message={errors.tutorEmail} />
+                <FieldError message={errors.emergencyContactPhone} />
               </div>
 
               {/* <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-sm text-blue-700">
-                  Los datos del tutor son opcionales. Continúa al siguiente paso para agregar padecimientos.
+                  Los datos del contacto de emergencia son opcionales. Continúa al siguiente paso para agregar padecimientos.
                 </p>
               </div> */}
             </div>
@@ -890,8 +899,10 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                     description: '',
                     medication: '',
                     medicalDescription: '',
-                    severity: 'moderado',
+                    severity: 'moderate',
                     notes: '',
+                    diagnosisDate: '',
+                    assignmentNotes: '',
                   })
                 }
                 onChangeNewAilmentForm={setNewAilmentForm}
@@ -921,57 +932,12 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
             </div>
           )}
 
-          {currentStep === 'subjects' && (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-3">
-                  Asignar Materias
-                </label>
-                {availableSubjects.length === 0 ? (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center">
-                    <p className="text-sm text-yellow-800">
-                      No hay materias disponibles. Por favor, crea materias primero.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-96 overflow-y-auto border border-gray-200 rounded-lg p-4">
-                    {availableSubjects.map((subject) => (
-                      <label
-                        key={subject.id}
-                        className="flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedSubjects.includes(subject.id)}
-                          onChange={() => toggleSubject(subject.id)}
-                          className="w-4 h-4 text-blue-500 rounded cursor-pointer"
-                        />
-                        <div className="flex-1">
-                          <p className="font-medium text-gray-700">{subject.name}</p>
-                          <p className="text-xs text-gray-500">{subject.code}</p>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {selectedSubjects.length > 0 && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <p className="text-sm text-blue-700">
-                    {selectedSubjects.length} materia(s) seleccionada(s)
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
           <StudentWizardActions
             accent="blue"
             onCancel={handleClose}
             onNext={handleNextStep}
             onSubmit={handleSubmit}
-            showNext={currentStep !== 'subjects'}
+            showNext={currentStep !== 'ailments'}
             cancelDisabled={isSaving || showConfirm}
             nextDisabled={isSaving}
             submitDisabled={isSaving || showConfirm}

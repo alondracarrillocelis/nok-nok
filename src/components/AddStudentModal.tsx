@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { X, FileText } from 'lucide-react';
-import { students as studentsApi, subjects as subjectsApi, users as usersApi, ailments as ailmentsApi, studentAilments, studentSubjects, enrollments, documents } from '../lib/api';
+import { students as studentsApi, programs as programsApi, users as usersApi, ailments as ailmentsApi, studentAilments, enrollments, documents } from '../lib/api';
+import type { AilmentSeverity } from '../lib/api';
+import { ENROLLMENT_TYPE_OPTIONS, EnrollmentType, getAvailableProgramOptions, ProgramOption } from '../lib/academy';
 import { showToast } from './Toast';
 import DragDropUpload from './DragDropUpload';
 import ConfirmationModal from './ConfirmationModal';
@@ -8,13 +10,7 @@ import AilmentsStepSection from './AilmentsStepSection';
 import FieldError from './FieldError';
 import StudentWizardActions from './StudentWizardActions';
 import StudentWizardSteps from './StudentWizardSteps';
-import { formatPhoneMask, isValidEmail, isValidPhone } from '../lib/validators';
-
-interface Subject {
-  id: string;
-  name: string;
-  code: string;
-}
+import { formatPhoneMask, isValidPhone } from '../lib/validators';
 
 interface Ailment {
   id: string;
@@ -33,13 +29,6 @@ interface User {
   role: string;
 }
 
-interface ApiSubject {
-  id: string;
-  name: string;
-  code: string;
-  status?: string;
-}
-
 interface ApiUser {
   id: string;
   firstName?: string;
@@ -54,8 +43,8 @@ interface AddStudentModalProps {
   onSuccess: () => void;
 }
 
-type Step = 'personal' | 'academic' | 'inscription' | 'tutor' | 'ailments' | 'subjects';
-type GenderValue = '' | 'femenino' | 'masculino' | 'otro' | 'prefiero_no_decirlo';
+type Step = 'personal' | 'inscription' | 'tutor' | 'ailments';
+type GenderValue = '' | 'male' | 'female' | 'other';
 
 export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalProps) {
   const [currentStep, setCurrentStep] = useState<Step>('personal');
@@ -69,23 +58,21 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
     enrollmentDate: '',
     currentLevel: 'Principiante',
     currentGrade: 'Principiante',
-    program: 'Programa I',
+    program: '',
     shift: 'Matutino',
-    representative: 'Representante I',
-    tutorName: '',
-    tutorPhone: '',
-    tutorEmail: '',
+    representative: '',
+    emergencyContactName: '',
+    emergencyContactPhone: '',
     folio: '',
     inscriptionDate: new Date().toISOString().split('T')[0],
-    inscriptionType: 'semanal',
-    inscriptionProgram: 'Programa I',
+    inscriptionType: 'semanal' as EnrollmentType,
+    inscriptionProgram: '',
     representativeId: '',
   };
   const [formData, setFormData] = useState(initialData);
   const [initialFormData, setInitialFormData] = useState(initialData);
   const [showUnsavedChangesConfirm, setShowUnsavedChangesConfirm] = useState(false);
-  const [selectedSubjects, setSelectedSubjects] = useState<string[]>([]);
-  const [availableSubjects, setAvailableSubjects] = useState<Subject[]>([]);
+  const [availablePrograms, setAvailablePrograms] = useState<ProgramOption[]>([]);
   const [selectedAilments, setSelectedAilments] = useState<string[]>([]);
   const [availableAilments, setAvailableAilments] = useState<Ailment[]>([]);
   const [ailmentDetails, setAilmentDetails] = useState<Record<string, { diagnosisDate: string; notes: string }>>({});
@@ -99,8 +86,10 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
     description: '',
     medication: '',
     medicalDescription: '',
-    severity: 'moderado' as 'leve' | 'moderado' | 'severo',
+    severity: 'moderate' as AilmentSeverity,
     notes: '',
+    diagnosisDate: '',
+    assignmentNotes: '',
   });
   const [creatingAilment, setCreatingAilment] = useState(false);
 
@@ -108,7 +97,7 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
   const [showSuccessConfirm, setShowSuccessConfirm] = useState(false);
 
   const hasUnsavedChanges = () => {
-    return JSON.stringify(formData) !== JSON.stringify(initialFormData) || selectedSubjects.length > 0 || selectedAilments.length > 0 || documentFiles.length > 0;
+    return JSON.stringify(formData) !== JSON.stringify(initialFormData) || selectedAilments.length > 0 || documentFiles.length > 0;
   };
 
   const handleClose = () => {
@@ -120,9 +109,10 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
   };
 
   useEffect(() => {
-    fetchSubjects();
+    fetchPrograms();
     fetchAilments();
     fetchUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchAilments = async () => {
@@ -140,22 +130,28 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
     }
   };
 
-  const fetchSubjects = async () => {
+  const fetchPrograms = async () => {
     try {
-      const response = await subjectsApi.list();
-      const list = Array.isArray(response)
-        ? response
-        : Array.isArray((response as { data?: ApiSubject[] }).data)
-          ? (response as { data: ApiSubject[] }).data
-          : [];
-      setAvailableSubjects(
-        list
-          .filter((subject) => (subject.status ? subject.status === 'activo' : true))
-          .map((subject) => ({ id: subject.id, name: subject.name, code: subject.code }))
-      );
+      const response = await programsApi.list();
+      const nextPrograms = getAvailableProgramOptions(response, formData.program || formData.inscriptionProgram);
+
+      setAvailablePrograms(nextPrograms);
+
+      if (nextPrograms.length > 0) {
+        setFormData((prev) => ({
+          ...prev,
+          program: prev.program || prev.inscriptionProgram || nextPrograms[0].id,
+          inscriptionProgram: prev.inscriptionProgram || prev.program || nextPrograms[0].id,
+        }));
+        setInitialFormData((prev) => ({
+          ...prev,
+          program: prev.program || prev.inscriptionProgram || nextPrograms[0].id,
+          inscriptionProgram: prev.inscriptionProgram || prev.program || nextPrograms[0].id,
+        }));
+      }
     } catch (error) {
-      console.error('Error fetching subjects:', error);
-      setAvailableSubjects([]);
+      console.error('Error fetching programs:', error);
+      setAvailablePrograms([]);
     }
   };
 
@@ -175,6 +171,15 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
     }
   };
 
+  const handleRepresentativeChange = (userId: string) => {
+    const selectedUser = availableUsers.find((user) => user.id === userId);
+    setFormData((prev) => ({
+      ...prev,
+      representativeId: userId,
+      representative: selectedUser?.name || '',
+    }));
+  };
+
   const handleCreateAilment = async () => {
     if (!newAilmentForm.name.trim()) {
       showToast('El nombre del padecimiento es obligatorio', 'error');
@@ -189,6 +194,7 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
         medication: newAilmentForm.medication.trim(),
         medicalDescription: newAilmentForm.medicalDescription.trim(),
         severity: newAilmentForm.severity,
+        status: 'active',
         notes: newAilmentForm.notes.trim(),
       });
 
@@ -197,14 +203,23 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
         setAvailableAilments(prev => [...prev, newAilment as Ailment]);
         // Auto-select the new ailment
         setSelectedAilments(prev => [...prev, newAilment.id]);
+        setAilmentDetails((prev) => ({
+          ...prev,
+          [newAilment.id]: {
+            diagnosisDate: newAilmentForm.diagnosisDate,
+            notes: newAilmentForm.assignmentNotes.trim(),
+          },
+        }));
         // Reset form
         setNewAilmentForm({
           name: '',
           description: '',
           medication: '',
           medicalDescription: '',
-          severity: 'moderado',
+          severity: 'moderate',
           notes: '',
+          diagnosisDate: '',
+          assignmentNotes: '',
         });
         showToast('Padecimiento creado y asignado al alumno', 'success');
       }
@@ -237,6 +252,9 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
     if (!formData.enrollmentNumber.trim()) {
       newErrors.enrollmentNumber = 'La matrícula es obligatoria';
     }
+    if (!formData.gender) {
+      newErrors.gender = 'El género es obligatorio';
+    }
     if (formData.enrollmentNumber && formData.enrollmentNumber.trim().length < 4) {
       newErrors.enrollmentNumber = 'La matrícula debe tener al menos 4 caracteres';
     }
@@ -251,7 +269,7 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
     return Object.keys(newErrors).length === 0;
   };
 
-  const validateAcademicStep = (): boolean => {
+  const validateInscriptionStep = (): boolean => {
     const newErrors: Record<string, string> = {};
 
     if (!formData.currentLevel) {
@@ -263,6 +281,9 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
     if (!formData.currentGrade.trim()) {
       newErrors.currentGrade = 'El grado actual es obligatorio';
     }
+    if (!formData.program) {
+      newErrors.program = 'El programa es obligatorio';
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -271,16 +292,13 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
   const validateStep = (): boolean => {
     if (currentStep === 'personal') {
       return validatePersonalStep();
-    } else if (currentStep === 'academic') {
-      return validateAcademicStep();
+    } else if (currentStep === 'inscription') {
+      return validateInscriptionStep();
     } else if (currentStep === 'tutor') {
       const newErrors: Record<string, string> = {};
 
-      if (formData.tutorPhone.trim() && !isValidPhone(formData.tutorPhone)) {
-        newErrors.tutorPhone = 'El teléfono debe tener entre 10 y 15 dígitos';
-      }
-      if (formData.tutorEmail.trim() && !isValidEmail(formData.tutorEmail)) {
-        newErrors.tutorEmail = 'Ingresa un correo electrónico válido';
+      if (formData.emergencyContactPhone.trim() && !isValidPhone(formData.emergencyContactPhone)) {
+        newErrors.emergencyContactPhone = 'El teléfono debe tener entre 10 y 15 dígitos';
       }
 
       setErrors(newErrors);
@@ -295,19 +313,11 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
       return;
     }
 
-    const stepOrder: Step[] = ['personal', 'academic', 'inscription', 'tutor', 'ailments', 'subjects'];
+    const stepOrder: Step[] = ['personal', 'inscription', 'tutor', 'ailments'];
     const currentIndex = stepOrder.indexOf(currentStep);
     if (currentIndex < stepOrder.length - 1) {
       setCurrentStep(stepOrder[currentIndex + 1]);
     }
-  };
-
-  const toggleSubject = (subjectId: string) => {
-    setSelectedSubjects(prev =>
-      prev.includes(subjectId)
-        ? prev.filter(id => id !== subjectId)
-        : [...prev, subjectId]
-    );
   };
 
   const handleSubmit = async () => {
@@ -321,6 +331,14 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
   const performSubmit = async () => {
     setIsLoading(true);
     try {
+      const selectedProgram = availablePrograms.find((program) => program.id === formData.program);
+
+      if (!formData.gender) {
+        showToast('El género es obligatorio', 'error');
+        setErrors((prev) => ({ ...prev, gender: 'El género es obligatorio' }));
+        return;
+      }
+
       // Crear estudiante con el body documentado por el API contract
       const studentData = {
         firstName: formData.firstName.trim(),
@@ -332,10 +350,12 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
         enrollmentDate: formData.enrollmentDate || formData.inscriptionDate || undefined,
         currentLevel: formData.currentLevel,
         currentGrade: formData.currentGrade,
-        program: formData.program,
         shift: formData.shift,
-        representative: formData.representative,
-        status: 'activo' as const,
+        representative: formData.representative || undefined,
+        gender: formData.gender,
+        emergencyContactName: formData.emergencyContactName.trim() || undefined,
+        emergencyContactPhone: formData.emergencyContactPhone.trim() || undefined,
+        status: 'active' as const,
       };
 
       const student = await studentsApi.create(studentData);
@@ -357,22 +377,14 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
         }
       }
 
-      // Asignar materias
-      if (student && selectedSubjects.length > 0) {
-        for (const subjectId of selectedSubjects) {
-          await studentSubjects.create({
-            studentId: student.id,
-            subjectId,
-          });
-        }
-      }
-
       // Asignar padecimientos
       if (student && selectedAilments.length > 0) {
         for (const ailmentId of selectedAilments) {
           await studentAilments.create({
             studentId: student.id,
             ailmentId,
+            status: 'active',
+            diagnosisDate: ailmentDetails[ailmentId]?.diagnosisDate || undefined,
             notes: ailmentDetails[ailmentId]?.notes || undefined,
           });
         }
@@ -383,10 +395,11 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
         await enrollments.create({
           studentId: student.id,
           enrollmentDate: formData.inscriptionDate,
-          enrollmentType: formData.inscriptionType as 'semanal' | 'trimestral' | 'anual',
-          program: formData.inscriptionProgram,
+          enrollmentType: formData.inscriptionType,
+          programId: formData.program,
+          program: selectedProgram?.name,
           representativeId: formData.representativeId || undefined,
-          status: 'activo',
+          status: 'active',
         });
       }
 
@@ -403,11 +416,9 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
 
   const steps = [
     { id: 'personal', label: 'Info. Personal' },
-    { id: 'academic', label: 'Info. Académica' },
     { id: 'inscription', label: 'Inscripción' },
-    { id: 'tutor', label: 'Tutor' },
+    { id: 'tutor', label: 'Contacto de emergencia' },
     { id: 'ailments', label: 'Padecimientos' },
-    { id: 'subjects', label: 'Materias' },
   ];
 
   return (
@@ -493,14 +504,18 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
                   <select
                     value={formData.gender}
                     onChange={(e) => updateField('gender', e.target.value)}
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 ${
+                      errors.gender
+                        ? 'border-red-400 focus:ring-red-500'
+                        : 'border-gray-300 focus:ring-green-500'
+                    }`}
                   >
                     <option value="">Seleccionar</option>
-                    <option value="femenino">Femenino</option>
-                    <option value="masculino">Masculino</option>
-                    <option value="otro">Otro</option>
-                    <option value="prefiero_no_decirlo">Prefiero no decirlo</option>
+                    <option value="male">Masculino</option>
+                    <option value="female">Femenino</option>
+                    <option value="other">Otro</option>
                   </select>
+                  <FieldError message={errors.gender} />
                 </div>
               </div>
 
@@ -545,7 +560,7 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
             </div>
           )}
 
-          {currentStep === 'academic' && (
+          {currentStep === 'inscription' && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -589,19 +604,6 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Programa
-                  </label>
-                  <select
-                    value={formData.program}
-                    onChange={(e) => updateField('program', e.target.value)}
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
-                  >
-                    <option value="Programa I">Programa I</option>
-                    <option value="Programa II">Programa II</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Turno *
                   </label>
                   <select
@@ -618,26 +620,33 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
                   </select>
                   <FieldError message={errors.shift} />
                 </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Programa
+                  </label>
+                  <select
+                    value={formData.program}
+                    onChange={(e) => {
+                      updateField('program', e.target.value);
+                      updateField('inscriptionProgram', e.target.value);
+                    }}
+                    className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 ${
+                      errors.program
+                        ? 'border-red-400 focus:ring-red-500'
+                        : 'border-gray-300 focus:ring-green-500'
+                    }`}
+                  >
+                    <option value="">Seleccionar programa</option>
+                    {availablePrograms.map((program) => (
+                      <option key={program.id} value={program.id}>
+                        {program.description ? `${program.name} - ${program.description}` : program.name}
+                      </option>
+                    ))}
+                  </select>
+                  <FieldError message={errors.program} />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Representante
-                </label>
-                <select
-                  value={formData.representative}
-                  onChange={(e) => updateField('representative', e.target.value)}
-                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
-                >
-                  <option value="Representante I">Representante I</option>
-                  <option value="Representante II">Representante II</option>
-                </select>
-              </div>
-            </div>
-          )}
-
-          {currentStep === 'inscription' && (
-            <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -665,34 +674,21 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Tipo de Inscripción
-                  </label>
-                  <select
-                    value={formData.inscriptionType}
-                    onChange={(e) => updateField('inscriptionType', e.target.value)}
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
-                  >
-                    <option value="semanal">Semanal</option>
-                    <option value="trimestral">Trimestral</option>
-                    <option value="anual">Anual</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Programa
-                  </label>
-                  <select
-                    value={formData.inscriptionProgram}
-                    onChange={(e) => updateField('inscriptionProgram', e.target.value)}
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
-                  >
-                    <option value="Programa I">Programa I</option>
-                    <option value="Programa II">Programa II</option>
-                  </select>
-                </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Tipo de Inscripción
+                </label>
+                <select
+                  value={formData.inscriptionType}
+                  onChange={(e) => updateField('inscriptionType', e.target.value)}
+                  className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
+                >
+                  {ENROLLMENT_TYPE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
@@ -701,7 +697,7 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
                 </label>
                 <select
                   value={formData.representativeId}
-                  onChange={(e) => updateField('representativeId', e.target.value)}
+                  onChange={(e) => handleRepresentativeChange(e.target.value)}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
                 >
                   <option value="">Seleccionar representante...</option>
@@ -755,13 +751,13 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Nombre del Tutor
+                  Nombre del contacto de emergencia
                 </label>
                 <input
                   type="text"
-                  value={formData.tutorName}
-                  onChange={(e) => updateField('tutorName', e.target.value)}
-                  placeholder="Nombre del tutor"
+                  value={formData.emergencyContactName}
+                  onChange={(e) => updateField('emergencyContactName', e.target.value)}
+                  placeholder="Nombre del contacto"
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
                 />
               </div>
@@ -772,39 +768,21 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
                 </label>
                 <input
                   type="tel"
-                  value={formData.tutorPhone}
-                  onChange={(e) => updateField('tutorPhone', formatPhoneMask(e.target.value))}
+                  value={formData.emergencyContactPhone}
+                  onChange={(e) => updateField('emergencyContactPhone', formatPhoneMask(e.target.value))}
                   placeholder="555-123-4567"
                   className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 ${
-                    errors.tutorPhone
+                    errors.emergencyContactPhone
                       ? 'border-red-400 focus:ring-red-500'
                       : 'border-gray-300 focus:ring-green-500'
                   }`}
                 />
-                <FieldError message={errors.tutorPhone} />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Correo Electrónico
-                </label>
-                <input
-                  type="email"
-                  value={formData.tutorEmail}
-                  onChange={(e) => updateField('tutorEmail', e.target.value)}
-                  placeholder="tutor@email.com"
-                  className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 ${
-                    errors.tutorEmail
-                      ? 'border-red-400 focus:ring-red-500'
-                      : 'border-gray-300 focus:ring-green-500'
-                  }`}
-                />
-                <FieldError message={errors.tutorEmail} />
+                <FieldError message={errors.emergencyContactPhone} />
               </div>
 
               {/* <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                 <p className="text-sm text-blue-700">
-                  Los datos del tutor son opcionales. Continúa al siguiente paso para agregar padecimientos.
+                  Los datos del contacto de emergencia son opcionales. Continúa al siguiente paso para agregar padecimientos.
                 </p>
               </div> */}
             </div>
@@ -828,8 +806,10 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
                     description: '',
                     medication: '',
                     medicalDescription: '',
-                    severity: 'moderado',
+                    severity: 'moderate',
                     notes: '',
+                    diagnosisDate: '',
+                    assignmentNotes: '',
                   })
                 }
                 onChangeNewAilmentForm={setNewAilmentForm}
@@ -868,57 +848,12 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
             </div>
           )}
 
-          {currentStep === 'subjects' && (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-3">
-                  Asignar Materias
-                </label>
-                  {availableSubjects.length === 0 ? (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-center">
-                    <p className="text-sm text-yellow-800">
-                      No hay materias disponibles. Por favor, crea materias primero.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-96 overflow-y-auto border border-gray-200 rounded-lg p-4">
-                      {availableSubjects.map((subject) => (
-                      <label
-                        key={subject.id}
-                        className="flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-50 cursor-pointer transition-colors"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedSubjects.includes(subject.id)}
-                          onChange={() => toggleSubject(subject.id)}
-                          className="w-4 h-4 text-green-500 rounded cursor-pointer"
-                        />
-                        <div className="flex-1">
-                          <p className="font-medium text-gray-700">{subject.name}</p>
-                          <p className="text-xs text-gray-500">{subject.code}</p>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {selectedSubjects.length > 0 && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                  <p className="text-sm text-green-700">
-                    {selectedSubjects.length} materia(s) seleccionada(s)
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
           <StudentWizardActions
             accent="green"
             onCancel={handleClose}
             onNext={handleNextStep}
             onSubmit={handleSubmit}
-            showNext={currentStep !== 'subjects'}
+            showNext={currentStep !== 'ailments'}
             nextDisabled={isLoading}
             submitDisabled={isLoading}
             submitLabel={isLoading ? 'Guardando...' : 'Guardar Alumno/a'}
@@ -946,11 +881,15 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
         message="El alumno ha sido registrado exitosamente. ¿Deseas agregar otro alumno o terminar?"
         onConfirm={() => {
           setShowSuccessConfirm(false);
+          const nextInitialData = {
+            ...initialData,
+            program: availablePrograms[0]?.id || '',
+            inscriptionProgram: availablePrograms[0]?.id || '',
+          };
           // Reset form for new student
           setCurrentStep('personal');
-          setFormData(initialData);
-          setInitialFormData(initialData);
-          setSelectedSubjects([]);
+          setFormData(nextInitialData);
+          setInitialFormData(nextInitialData);
           setSelectedAilments([]);
           setAilmentDetails({});
           setDocumentFiles([]);
