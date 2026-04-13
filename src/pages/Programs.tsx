@@ -58,10 +58,12 @@ export default function Programs() {
     onConfirm: () => {},
   });
   const [confirmLoading, setConfirmLoading] = useState(false);
+  const [subjectCreationContext, setSubjectCreationContext] = useState<'catalog' | 'program-form' | 'selected-program'>('catalog');
 
   const [programForm, setProgramForm] = useState({
     name: '',
     description: '',
+    selectedSubjectIds: [] as string[],
   });
   const [assignSubjectId, setAssignSubjectId] = useState('');
 
@@ -124,15 +126,20 @@ export default function Programs() {
     );
   }, [selectedProgram, subjectCatalog]);
 
+  const availableSubjectsForProgramForm = useMemo(() => {
+    return subjectCatalog.filter((subject) => subject.status !== 'inactive' && UUID_PATTERN.test(subject.id));
+  }, [subjectCatalog]);
+
   const resetSubjectModal = () => {
     setShowAddSubjectModal(false);
     setEditingSubjectId(null);
     setNewSubjectForm(newSubjectFormInitial);
+    setSubjectCreationContext('catalog');
   };
 
   const resetProgramModal = () => {
     setShowAddProgramModal(false);
-    setProgramForm({ name: '', description: '' });
+    setProgramForm({ name: '', description: '', selectedSubjectIds: [] });
   };
 
   const resetAssignSubjectModal = () => {
@@ -186,8 +193,30 @@ export default function Programs() {
               credits: newSubjectForm.credits,
               status: newSubjectForm.status,
             });
+
+            if (subjectCreationContext === 'program-form') {
+              setProgramForm((prev) => ({
+                ...prev,
+                selectedSubjectIds: prev.selectedSubjectIds.includes(createdSubject.id)
+                  ? prev.selectedSubjectIds
+                  : [...prev.selectedSubjectIds, createdSubject.id],
+              }));
+            }
+
+            if (subjectCreationContext === 'selected-program' && selectedProgram) {
+              await programsApi.addSubject(selectedProgram.id, createdSubject.id);
+              resetAssignSubjectModal();
+            }
+
             if (onCreated) onCreated(createdSubject.id);
-            showToast('Materia agregada exitosamente', 'success');
+            showToast(
+              subjectCreationContext === 'selected-program'
+                ? 'Materia agregada y asignada al programa'
+                : subjectCreationContext === 'program-form'
+                  ? 'Materia agregada y lista para el nuevo programa'
+                  : 'Materia agregada exitosamente',
+              'success'
+            );
           }
 
           resetSubjectModal();
@@ -224,7 +253,18 @@ export default function Programs() {
             status: 'active',
           });
 
-          showToast('Programa agregado exitosamente', 'success');
+          if (programForm.selectedSubjectIds.length > 0) {
+            await Promise.all(
+              programForm.selectedSubjectIds.map((subjectId) => programsApi.addSubject(createdProgram.id, subjectId))
+            );
+          }
+
+          showToast(
+            programForm.selectedSubjectIds.length > 0
+              ? 'Programa agregado con materias asignadas'
+              : 'Programa agregado exitosamente',
+            'success'
+          );
           resetProgramModal();
           await fetchCatalog();
           setSelectedProgramId(createdProgram.id);
@@ -293,6 +333,15 @@ export default function Programs() {
     setShowAssignSubjectModal(true);
   };
 
+  const toggleProgramFormSubject = (subjectId: string) => {
+    setProgramForm((prev) => ({
+      ...prev,
+      selectedSubjectIds: prev.selectedSubjectIds.includes(subjectId)
+        ? prev.selectedSubjectIds.filter((id) => id !== subjectId)
+        : [...prev.selectedSubjectIds, subjectId],
+    }));
+  };
+
   const assignSubjectToProgram = async () => {
     if (!selectedProgram || !assignSubjectId) {
       showToast('Selecciona una materia para asignar', 'error');
@@ -352,7 +401,10 @@ export default function Programs() {
               Agregar Programa
             </button>
             <button
-              onClick={() => setShowAddSubjectModal(true)}
+              onClick={() => {
+                setSubjectCreationContext('catalog');
+                setShowAddSubjectModal(true);
+              }}
               className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2.5 rounded-full font-semibold hover:bg-blue-700 transition-colors"
             >
               <Plus size={18} />
@@ -540,6 +592,66 @@ export default function Programs() {
                 />
               </div>
 
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-gray-800">Asignar materias al programa</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Selecciona materias existentes o crea una nueva y quedará marcada automáticamente.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSubjectCreationContext('program-form');
+                      setShowAddSubjectModal(true);
+                    }}
+                    className="rounded-full bg-blue-100 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-200"
+                  >
+                    Crear materia
+                  </button>
+                </div>
+
+                <div className="mt-4 max-h-64 space-y-2 overflow-y-auto pr-1">
+                  {availableSubjectsForProgramForm.length > 0 ? (
+                    availableSubjectsForProgramForm.map((subject) => {
+                      const isSelected = programForm.selectedSubjectIds.includes(subject.id);
+
+                      return (
+                        <label
+                          key={subject.id}
+                          className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition-colors ${
+                            isSelected ? 'border-green-300 bg-green-50' : 'border-gray-200 bg-white hover:bg-gray-50'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleProgramFormSubject(subject.id)}
+                            className="mt-1 h-4 w-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-sm font-semibold text-gray-900">{subject.name}</span>
+                              <span className="rounded-md bg-blue-100 px-2 py-1 text-xs font-bold text-blue-800">{subject.code}</span>
+                            </div>
+                            <p className="mt-1 text-xs text-gray-500">{subject.description || 'Sin descripción'}</p>
+                          </div>
+                        </label>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-6 text-sm text-gray-500">
+                      No hay materias activas en el catálogo. Crea una para asignarla al programa.
+                    </div>
+                  )}
+                </div>
+
+                <p className="mt-3 text-xs font-medium text-gray-600">
+                  {programForm.selectedSubjectIds.length} materia(s) seleccionada(s)
+                </p>
+              </div>
+
             </div>
 
             <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-gray-200">
@@ -593,6 +705,20 @@ export default function Programs() {
                   </div>
                 )}
               </div>
+
+              <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-4 py-4 text-sm text-gray-600">
+                <p>Si la materia no existe en el catálogo, puedes crearla desde aquí y quedará asignada automáticamente.</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSubjectCreationContext('selected-program');
+                    setShowAddSubjectModal(true);
+                  }}
+                  className="mt-3 rounded-full bg-blue-100 px-4 py-2 font-semibold text-blue-700 hover:bg-blue-200"
+                >
+                  Crear y asignar materia
+                </button>
+              </div>
             </div>
 
             <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-gray-200">
@@ -620,7 +746,13 @@ export default function Programs() {
             <div className="flex items-start justify-between mb-6">
               <div>
                 <h2 className="text-2xl font-black text-gray-900">Agregar Materia</h2>
-                <p className="text-sm text-gray-600">Edita o agrega materias del catálogo</p>
+                <p className="text-sm text-gray-600">
+                  {subjectCreationContext === 'selected-program'
+                    ? 'La materia nueva se asignará automáticamente al programa actual.'
+                    : subjectCreationContext === 'program-form'
+                      ? 'La materia nueva quedará seleccionada para el programa que estás creando.'
+                      : 'Edita o agrega materias del catálogo.'}
+                </p>
               </div>
               <button onClick={resetSubjectModal} className="text-gray-500 hover:text-gray-800 text-xl">×</button>
             </div>

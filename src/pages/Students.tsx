@@ -18,7 +18,7 @@ interface Student {
   currentLevel?: string | null;
   enrollmentDate?: string | null;
   representative?: string | null;
-  status: 'active' | 'inactive' | 'dropped';
+  status: 'active' | 'pending' | 'dropped';
 }
 
 interface SubjectShort {
@@ -67,7 +67,6 @@ interface DetailedStudent extends Student {
   }>;
 }
 
-const UUID_PATTERN = /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/;
 const ENROLLMENT_STATUS_OPTIONS = [
   { value: 'active', label: 'Activa' },
   { value: 'inactive', label: 'Inactiva' },
@@ -92,7 +91,7 @@ export default function Students() {
   const [students, setStudents] = useState<Student[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive' | 'dropped'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'pending' | 'dropped'>('all');
   const [enrollmentMonthFilter, setEnrollmentMonthFilter] = useState<string>('');
   const [page, setPage] = useState(1);
   const [limit] = useState(20);
@@ -103,17 +102,14 @@ export default function Students() {
   const [selectedStudents, setSelectedStudents] = useState<Set<string>>(new Set());
   const [selectedStudent, setSelectedStudent] = useState<DetailedStudent | null>(null);
   const [programCatalog, setProgramCatalog] = useState<Program[]>([]);
-  const [representativeCatalog, setRepresentativeCatalog] = useState<RepresentativeOption[]>([]);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [currentDetailTab, setCurrentDetailTab] = useState<'info' | 'programas' | 'representante' | 'documentos'>('info');
   const [showAddEnrollmentForm, setShowAddEnrollmentForm] = useState(false);
   const [isSavingEnrollment, setIsSavingEnrollment] = useState(false);
+  const [expandedEnrollmentId, setExpandedEnrollmentId] = useState<string | null>(null);
+  const [recentEnrollmentId, setRecentEnrollmentId] = useState<string | null>(null);
   const [newEnrollmentForm, setNewEnrollmentForm] = useState({
     programId: '',
-    enrollmentDate: new Date().toISOString().slice(0, 10),
-    enrollmentType: 'semanal',
-    representativeId: '',
-    status: 'active',
   });
   const [showInlineDocumentUploader, setShowInlineDocumentUploader] = useState(false);
   const [inlineDocumentFiles, setInlineDocumentFiles] = useState<File[]>([]);
@@ -132,6 +128,8 @@ export default function Students() {
     onConfirm: () => {},
   });
   const [isConfirmLoading, setIsConfirmLoading] = useState(false);
+  const [editingStatusStudentId, setEditingStatusStudentId] = useState<string | null>(null);
+  const [pendingStatusValue, setPendingStatusValue] = useState<Student['status']>('active');
   const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -145,6 +143,8 @@ export default function Students() {
         setSelectedStudent(null);
         setCurrentDetailTab('info');
         setShowAddEnrollmentForm(false);
+        setExpandedEnrollmentId(null);
+        setRecentEnrollmentId(null);
         setShowInlineDocumentUploader(false);
         setInlineDocumentFiles([]);
       }
@@ -161,10 +161,58 @@ export default function Students() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [students, enrollmentMonthFilter]);
 
+  const loadStudentsWithoutStatusFilter = async (search?: string) => {
+    const pageSize = 100;
+    const firstResponse = await studentsApi.list({
+      search,
+      page: 1,
+      limit: pageSize,
+    });
+
+    const firstPageRows = firstResponse.data || [];
+    const total = firstResponse.pagination?.total || firstPageRows.length;
+    const totalPagesCount = firstResponse.pagination?.totalPages || Math.max(1, Math.ceil(total / pageSize));
+
+    if (totalPagesCount <= 1) {
+      return firstPageRows;
+    }
+
+    const remainingResponses = await Promise.all(
+      Array.from({ length: totalPagesCount - 1 }, (_, index) =>
+        studentsApi.list({
+          search,
+          page: index + 2,
+          limit: pageSize,
+        })
+      )
+    );
+
+    return [...firstPageRows, ...remainingResponses.flatMap((response) => response.data || [])];
+  };
+
   const fetchStudents = async () => {
     try {
+      if (statusFilter !== 'all') {
+        const allStudentsForSearch = await loadStudentsWithoutStatusFilter(searchTerm.trim() || undefined);
+        const studentsByStatus = allStudentsForSearch.filter((student) => student.status === statusFilter);
+        const nextTotalPages = Math.max(1, Math.ceil(studentsByStatus.length / limit));
+        const safePage = Math.min(page, nextTotalPages);
+
+        if (safePage !== page) {
+          setPage(safePage);
+          return;
+        }
+
+        const startIndex = (safePage - 1) * limit;
+        const nextRows = studentsByStatus.slice(startIndex, startIndex + limit);
+
+        setStudents(nextRows);
+        setTotalPages(nextTotalPages);
+        setTotalStudents(studentsByStatus.length);
+        return;
+      }
+
       const response = await studentsApi.list({
-        status: statusFilter === 'all' ? undefined : statusFilter,
         search: searchTerm.trim() || undefined,
         page,
         limit,
@@ -203,7 +251,7 @@ export default function Students() {
     switch (status) {
       case 'active':
         return 'bg-green-100 text-green-800';
-      case 'inactive':
+      case 'pending':
         return 'bg-yellow-100 text-yellow-800';
       case 'dropped':
         return 'bg-red-100 text-red-800';
@@ -216,12 +264,33 @@ export default function Students() {
     switch (status) {
       case 'active':
         return 'Activo';
-      case 'inactive':
-        return 'Inactivo';
+      case 'pending':
+        return 'Pendiente';
       case 'dropped':
         return 'Baja';
       default:
         return status;
+    }
+  };
+
+  const handleStartStatusEdit = (student: Student) => {
+    setEditingStatusStudentId(student.id);
+    setPendingStatusValue(student.status);
+  };
+
+  const handleSaveStatus = async (studentId: string) => {
+    try {
+      const updatedStudent = await studentsApi.update(studentId, { status: pendingStatusValue });
+
+      setStudents((prev) => prev.map((student) => (student.id === studentId ? { ...student, status: updatedStudent.status } : student)));
+      setFilteredStudents((prev) => prev.map((student) => (student.id === studentId ? { ...student, status: updatedStudent.status } : student)));
+      setSelectedStudent((prev) => (prev && prev.id === studentId ? { ...prev, status: updatedStudent.status } : prev));
+      setEditingStatusStudentId(null);
+      showToast('Estado del alumno actualizado', 'success');
+    } catch (error) {
+      console.error('Error updating student status:', error);
+      const message = error instanceof Error ? error.message : 'Error al actualizar el estado del alumno';
+      showToast(message, 'error');
     }
   };
 
@@ -259,10 +328,6 @@ export default function Students() {
     const defaultProgramId = availableProgramsForSelectedStudent[0]?.id || '';
     setNewEnrollmentForm({
       programId: defaultProgramId,
-      enrollmentDate: new Date().toISOString().slice(0, 10),
-      enrollmentType: 'semanal',
-      representativeId: '',
-      status: 'active',
     });
     setShowAddEnrollmentForm(true);
   };
@@ -281,17 +346,39 @@ export default function Students() {
     try {
       const selectedProgram = programCatalog.find((program) => program.id === newEnrollmentForm.programId);
 
-      await enrollments.create({
+      const createdEnrollment = await enrollments.create({
         studentId: selectedStudent.id,
         programId: newEnrollmentForm.programId,
         program: selectedProgram?.name,
-        enrollmentDate: newEnrollmentForm.enrollmentDate,
-        enrollmentType: newEnrollmentForm.enrollmentType as Enrollment['enrollmentType'],
-        representativeId: newEnrollmentForm.representativeId || undefined,
-        status: newEnrollmentForm.status,
+        enrollmentDate: new Date().toISOString().slice(0, 10),
+        status: 'active',
       });
 
-      await refreshSelectedStudent(selectedStudent.id);
+      const enrollmentDetail: StudentEnrollmentDetail = {
+        ...createdEnrollment,
+        programDetails: selectedProgram || getProgramFromEnrollment(programCatalog, createdEnrollment),
+        programName: getProgramNameFromEnrollment(programCatalog, {
+          programId: createdEnrollment.programId || newEnrollmentForm.programId,
+          program: createdEnrollment.program || selectedProgram?.name || null,
+        }),
+        representativeName: null,
+      };
+
+      setSelectedStudent((prev) => {
+        if (!prev || prev.id !== selectedStudent.id) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          program: enrollmentDetail.programName,
+          programDetails: enrollmentDetail.programDetails,
+          enrollments: sortEnrollmentsByDate([enrollmentDetail, ...(prev.enrollments || [])]),
+        };
+      });
+
+      setExpandedEnrollmentId(createdEnrollment.id);
+      setRecentEnrollmentId(createdEnrollment.id);
       setShowAddEnrollmentForm(false);
       showToast('Programa asignado exitosamente al alumno', 'success');
     } catch (error) {
@@ -308,6 +395,8 @@ export default function Students() {
       setSelectedStudent(null);
       setCurrentDetailTab(initialTab);
       setShowAddEnrollmentForm(false);
+      setExpandedEnrollmentId(null);
+      setRecentEnrollmentId(null);
       setShowInlineDocumentUploader(false);
       setInlineDocumentFiles([]);
       return;
@@ -319,6 +408,8 @@ export default function Students() {
       setSelectedStudent(detailed);
       setShowInlineDocumentUploader(false);
       setInlineDocumentFiles([]);
+      setExpandedEnrollmentId(detailed.enrollments?.[0]?.id || null);
+      setRecentEnrollmentId(null);
       setCurrentDetailTab(initialTab);
       setOpenMenuId(null);
     } catch (error) {
@@ -341,11 +432,7 @@ export default function Students() {
       const representativesById = new Map(representativeOptions.map((user) => [user.id, user.name]));
 
       setProgramCatalog(programsCatalog);
-      setRepresentativeCatalog(representativeOptions);
-
-      const enrollmentsResponse = UUID_PATTERN.test(stuData.id)
-        ? await enrollments.list(stuData.id)
-        : { data: [] };
+      const enrollmentsResponse = await enrollments.list(stuData.id);
 
       const enrollmentHistory = sortEnrollmentsByDate(enrollmentsResponse.data || []);
       const enrollmentDetails = enrollmentHistory.map((enrollment) => {
@@ -537,10 +624,10 @@ export default function Students() {
     <Layout>
       <div className="space-y-6 relative">
         {selectedStudent && (
-          <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/35 backdrop-blur-sm p-4">
-            <div ref={cardRef} className="w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-[28px] border border-emerald-100/80 bg-white/95 shadow-2xl ring-1 ring-blue-100 flex flex-col">
+          <div className="student-detail-modal fixed inset-0 z-30 flex items-center justify-center bg-slate-950/35 backdrop-blur-sm p-4">
+            <div ref={cardRef} className="student-detail-shell w-full max-w-3xl max-h-[85vh] overflow-hidden rounded-[28px] border border-emerald-100/80 bg-white/95 shadow-2xl ring-1 ring-blue-100 flex flex-col">
             {/* Header */}
-            <div className="flex justify-between items-start mb-4 p-6 pb-4 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-blue-50">
+            <div className="student-detail-header flex justify-between items-start mb-4 p-6 pb-4 border-b border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-blue-50">
               <div>
                 <p className="text-xs uppercase tracking-wide text-gray-500 font-semibold">Ficha del Alumno</p>
                 <h3 className="font-black text-2xl text-gray-900 mt-1">
@@ -573,37 +660,37 @@ export default function Students() {
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto px-6 pb-2">
+            <div className="student-detail-content flex-1 overflow-y-auto px-6 pb-2">
               {currentDetailTab === 'info' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-2xl p-4 border border-blue-100">
+                  <div className="student-detail-card bg-gradient-to-br from-slate-50 to-blue-50 rounded-2xl p-4 border border-blue-100">
                     <p className="text-xs font-semibold text-gray-500 uppercase">Nombre completo</p>
                     <p className="text-sm font-medium text-gray-800 mt-1">{selectedStudent.firstName} {selectedStudent.paternalSurname} {selectedStudent.maternalSurname}</p>
                   </div>
-                  <div className="bg-gradient-to-br from-slate-50 to-emerald-50 rounded-2xl p-4 border border-emerald-100">
+                  <div className="student-detail-card bg-gradient-to-br from-slate-50 to-emerald-50 rounded-2xl p-4 border border-emerald-100">
                     <p className="text-xs font-semibold text-gray-500 uppercase">Matrícula</p>
                     <p className="text-sm font-medium text-gray-800 mt-1">{selectedStudent.enrollmentNumber}</p>
                   </div>
-                  <div className="bg-gradient-to-br from-slate-50 to-blue-50 rounded-2xl p-4 border border-blue-100">
+                  <div className="student-detail-card bg-gradient-to-br from-slate-50 to-blue-50 rounded-2xl p-4 border border-blue-100">
                     <p className="text-xs font-semibold text-gray-500 uppercase">Nivel</p>
                     <p className="text-sm font-medium text-gray-800 mt-1">{selectedStudent.currentLevel || '—'}</p>
                   </div>
-                  <div className="bg-gradient-to-br from-slate-50 to-indigo-50 rounded-2xl p-4 border border-indigo-100">
+                  <div className="student-detail-card bg-gradient-to-br from-slate-50 to-indigo-50 rounded-2xl p-4 border border-indigo-100">
                     <p className="text-xs font-semibold text-gray-500 uppercase">Programa actual</p>
                     <p className="text-sm font-medium text-gray-800 mt-1">{selectedStudent.programDetails?.name || selectedStudent.program || '—'}</p>
                     {selectedStudent.enrollments && selectedStudent.enrollments.length > 1 && (
                       <p className="mt-1 text-xs text-gray-500">{selectedStudent.enrollments.length} programas registrados</p>
                     )}
                   </div>
-                  <div className="bg-gradient-to-br from-slate-50 to-amber-50 rounded-2xl p-4 border border-amber-100">
+                  <div className="student-detail-card bg-gradient-to-br from-slate-50 to-amber-50 rounded-2xl p-4 border border-amber-100">
                     <p className="text-xs font-semibold text-gray-500 uppercase">Estado</p>
                     <p className="text-sm font-medium text-gray-800 mt-1">{getStatusLabel(selectedStudent.status)}</p>
                   </div>
-                  <div className="bg-gradient-to-br from-slate-50 to-cyan-50 rounded-2xl p-4 border border-cyan-100">
+                  <div className="student-detail-card bg-gradient-to-br from-slate-50 to-cyan-50 rounded-2xl p-4 border border-cyan-100">
                     <p className="text-xs font-semibold text-gray-500 uppercase">Género</p>
                     <p className="text-sm font-medium text-gray-800 mt-1">—</p>
                   </div>
-                  <div className="bg-gradient-to-br from-slate-50 to-violet-50 rounded-2xl p-4 border border-violet-100 md:col-span-2">
+                  <div className="student-detail-card bg-gradient-to-br from-slate-50 to-violet-50 rounded-2xl p-4 border border-violet-100 md:col-span-2">
                     <p className="text-xs font-semibold text-gray-500 uppercase">Fecha de Inscripción</p>
                     <p className="text-sm font-medium text-gray-800 mt-1">{selectedStudent.enrollmentDate ? new Date(selectedStudent.enrollmentDate).toLocaleDateString('es-ES', {
                       weekday: 'long',
@@ -612,12 +699,12 @@ export default function Students() {
                       day: 'numeric'
                     }) : '—'}</p>
                   </div>
-                  <div className="bg-gradient-to-br from-slate-50 to-emerald-50 rounded-2xl p-4 border border-emerald-100 md:col-span-2">
+                  <div className="student-detail-card bg-gradient-to-br from-slate-50 to-emerald-50 rounded-2xl p-4 border border-emerald-100 md:col-span-2">
                     <p className="text-xs font-semibold text-gray-500 uppercase">Contacto de emergencia</p>
                     <p className="text-sm font-medium text-gray-800 mt-1">{selectedStudent.emergencyContactName || 'Sin contacto registrado'}</p>
                     <p className="text-sm text-gray-700 mt-1">Teléfono: {selectedStudent.emergencyContactPhone || '—'}</p>
                   </div>
-                  <div className="bg-gradient-to-br from-slate-50 to-rose-50 rounded-2xl p-4 border border-rose-100 md:col-span-2">
+                  <div className="student-detail-card bg-gradient-to-br from-slate-50 to-rose-50 rounded-2xl p-4 border border-rose-100 md:col-span-2">
                     <p className="text-xs font-semibold text-gray-500 uppercase">Padecimientos</p>
                     {selectedStudent.ailments && selectedStudent.ailments.length > 0 ? (
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -642,12 +729,12 @@ export default function Students() {
               {currentDetailTab === 'representante' && (
                 <div className="space-y-3">
                   {selectedStudent.representative ? (
-                    <div className="rounded-xl border border-gray-200 p-4 bg-gray-50">
+                    <div className="student-detail-card rounded-xl border border-gray-200 p-4 bg-gray-50">
                       <p className="text-xs font-semibold text-gray-500 uppercase">Representante</p>
                       <p className="mt-1 font-medium text-gray-800">{selectedStudent.representative}</p>
                     </div>
                   ) : (
-                    <div className="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500">
+                    <div className="student-detail-card rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500">
                       No hay representante asignado
                     </div>
                   )}
@@ -656,7 +743,7 @@ export default function Students() {
 
               {currentDetailTab === 'programas' && (
                 <div className="space-y-4">
-                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
+                  <div className="student-detail-card rounded-2xl border border-indigo-100 bg-indigo-50/70 p-4">
                     <div className="flex items-center justify-between gap-3">
                       <p className="text-xs font-semibold uppercase text-indigo-600">Programas inscritos</p>
                       <button
@@ -670,68 +757,22 @@ export default function Students() {
                     </div>
 
                     {showAddEnrollmentForm && (
-                      <div className="mt-4 rounded-xl border border-indigo-200 bg-white p-4 shadow-sm">
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <div>
-                            <label className="block text-xs font-semibold uppercase text-gray-500">Programa</label>
-                            <select
-                              value={newEnrollmentForm.programId}
-                              onChange={(event) => setNewEnrollmentForm((prev) => ({ ...prev, programId: event.target.value }))}
-                              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                            >
-                              <option value="">Seleccionar programa</option>
-                              {availableProgramsForSelectedStudent.map((program) => (
-                                <option key={program.id} value={program.id}>{program.name}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-semibold uppercase text-gray-500">Fecha</label>
-                            <input
-                              type="date"
-                              value={newEnrollmentForm.enrollmentDate}
-                              onChange={(event) => setNewEnrollmentForm((prev) => ({ ...prev, enrollmentDate: event.target.value }))}
-                              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-semibold uppercase text-gray-500">Tipo</label>
-                            <select
-                              value={newEnrollmentForm.enrollmentType}
-                              onChange={(event) => setNewEnrollmentForm((prev) => ({ ...prev, enrollmentType: event.target.value }))}
-                              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                            >
-                              <option value="semanal">Semanal</option>
-                              <option value="mensual">Mensual</option>
-                              <option value="por_nivel">Por nivel</option>
-                              <option value="programa_completo">Programa completo</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-semibold uppercase text-gray-500">Estatus</label>
-                            <select
-                              value={newEnrollmentForm.status}
-                              onChange={(event) => setNewEnrollmentForm((prev) => ({ ...prev, status: event.target.value }))}
-                              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                            >
-                              {ENROLLMENT_STATUS_OPTIONS.map((option) => (
-                                <option key={option.value} value={option.value}>{option.label}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="md:col-span-2">
-                            <label className="block text-xs font-semibold uppercase text-gray-500">Representante</label>
-                            <select
-                              value={newEnrollmentForm.representativeId}
-                              onChange={(event) => setNewEnrollmentForm((prev) => ({ ...prev, representativeId: event.target.value }))}
-                              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-                            >
-                              <option value="">Sin representante</option>
-                              {representativeCatalog.map((representative) => (
-                                <option key={representative.id} value={representative.id}>{representative.name}</option>
-                              ))}
-                            </select>
-                          </div>
+                      <div className="student-detail-card mt-4 rounded-xl border border-indigo-200 bg-white p-4 shadow-sm">
+                        <div>
+                          <label className="block text-xs font-semibold uppercase text-gray-500">Programa</label>
+                          <select
+                            value={newEnrollmentForm.programId}
+                            onChange={(event) => setNewEnrollmentForm((prev) => ({ ...prev, programId: event.target.value }))}
+                            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                          >
+                            <option value="">Seleccionar programa</option>
+                            {availableProgramsForSelectedStudent.map((program) => (
+                              <option key={program.id} value={program.id}>{program.name}</option>
+                            ))}
+                          </select>
+                          <p className="mt-2 text-xs text-gray-500">
+                            Solo se asigna el programa. La inscripción se crea activa con la fecha actual.
+                          </p>
                         </div>
                         <div className="mt-4 flex items-center justify-end gap-2">
                           <button
@@ -744,10 +785,10 @@ export default function Students() {
                           <button
                             type="button"
                             onClick={handleCreateEnrollment}
-                            disabled={isSavingEnrollment}
+                            disabled={isSavingEnrollment || !newEnrollmentForm.programId}
                             className="rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
                           >
-                            {isSavingEnrollment ? 'Guardando...' : 'Guardar inscripción'}
+                            {isSavingEnrollment ? 'Guardando...' : 'Asignar programa'}
                           </button>
                         </div>
                       </div>
@@ -756,29 +797,55 @@ export default function Students() {
                     {selectedStudent.enrollments && selectedStudent.enrollments.length > 0 ? (
                       <div className="mt-3 space-y-3">
                         {selectedStudent.enrollments.map((enrollment, index) => (
-                          <details key={enrollment.id} open={index === 0} className="rounded-xl bg-white p-4 shadow-sm">
+                          <details
+                            key={enrollment.id}
+                            open={expandedEnrollmentId ? expandedEnrollmentId === enrollment.id : index === 0}
+                            onToggle={(event) => {
+                              const element = event.currentTarget;
+                              if (element.open) {
+                                setExpandedEnrollmentId(enrollment.id);
+                                return;
+                              }
+
+                              if (expandedEnrollmentId === enrollment.id) {
+                                setExpandedEnrollmentId(null);
+                              }
+                            }}
+                            className={`student-detail-enrollment rounded-xl p-4 shadow-sm transition-colors ${
+                              recentEnrollmentId === enrollment.id
+                                ? 'border border-emerald-300 bg-emerald-50 ring-1 ring-emerald-200'
+                                : 'bg-white'
+                            }`}
+                          >
                             <summary className="cursor-pointer list-none">
                               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                                <span className="font-semibold text-gray-900">{enrollment.programName}</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-gray-900">{enrollment.programName}</span>
+                                  {recentEnrollmentId === enrollment.id && (
+                                    <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                                      Recién asignado
+                                    </span>
+                                  )}
+                                </div>
                                 <span className="text-xs text-gray-500">
                                   {getEnrollmentTypeLabel(enrollment.enrollmentType)} · {getEnrollmentStatusLabel(enrollment.status)}
                                 </span>
                               </div>
                             </summary>
                             <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                              <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                              <div className="student-detail-card rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                                 <p className="text-xs font-semibold uppercase text-gray-500">Fecha de inscripción</p>
                                 <p className="mt-1 text-sm text-gray-800">{enrollment.enrollmentDate ? new Date(enrollment.enrollmentDate).toLocaleDateString('es-MX') : 'Sin fecha'}</p>
                               </div>
-                              <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                              <div className="student-detail-card rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                                 <p className="text-xs font-semibold uppercase text-gray-500">Representante</p>
                                 <p className="mt-1 text-sm text-gray-800">{enrollment.representativeName || 'Sin representante'}</p>
                               </div>
-                              <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                              <div className="student-detail-card rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                                 <p className="text-xs font-semibold uppercase text-gray-500">Estatus</p>
                                 <p className="mt-1 text-sm text-gray-800">{getEnrollmentStatusLabel(enrollment.status)}</p>
                               </div>
-                              <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                              <div className="student-detail-card rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                                 <p className="text-xs font-semibold uppercase text-gray-500">Vigencia</p>
                                 <p className="mt-1 text-sm text-gray-800">{enrollment.dueDate ? new Date(enrollment.dueDate).toLocaleDateString('es-MX') : 'Sin vencimiento'}</p>
                               </div>
@@ -789,7 +856,7 @@ export default function Students() {
                             <div className="mt-3 space-y-2">
                               {enrollment.programDetails?.subjects.length ? (
                                 enrollment.programDetails.subjects.map((subject) => (
-                                  <div key={subject.id} className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
+                                  <div key={subject.id} className="student-detail-card flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2">
                                     <span className="text-sm font-medium text-gray-800">{subject.name}</span>
                                     <span className="text-xs text-gray-500">{subject.code}</span>
                                   </div>
@@ -825,7 +892,7 @@ export default function Students() {
                   </div>
 
                   {showInlineDocumentUploader && (
-                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
+                    <div className="student-detail-card rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
                       <p className="text-sm font-semibold text-gray-900">Carga rapida de documentos</p>
                       <p className="mt-1 text-xs text-gray-600">Selecciona los archivos y guardalos directamente en la ficha.</p>
                       <div className="mt-4">
@@ -862,14 +929,14 @@ export default function Students() {
 
                   {selectedStudent.documents && selectedStudent.documents.length > 0 ? (
                     selectedStudent.documents.map((doc) => (
-                      <div key={doc.id} className="rounded-xl border border-gray-200 p-3 bg-gray-50">
+                      <div key={doc.id} className="student-detail-card rounded-xl border border-gray-200 p-3 bg-gray-50">
                         <p className="text-sm font-medium text-gray-800">{doc.file_name}</p>
                         <p className="text-xs text-gray-500 mt-1">{doc.document_type || 'Archivo'}</p>
                         <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline mt-2 inline-block">Descargar</a>
                       </div>
                     ))
                   ) : (
-                    <div className="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500">
+                    <div className="student-detail-card rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500">
                       <p>No hay documentos.</p>
                       <p className="mt-1">Si quieres agregarlos, presiona el siguiente boton para abrir una carga rapida aqui mismo.</p>
                       {!showInlineDocumentUploader && (
@@ -888,7 +955,7 @@ export default function Students() {
             </div>
 
             {/* Navigation Tabs */}
-            <div className="mt-4 p-6 pt-4 border-t border-emerald-100 flex items-center justify-between bg-white">
+            <div className="student-detail-footer mt-4 p-6 pt-4 border-t border-emerald-100 flex items-center justify-between bg-white">
               <button
                 onClick={() => handleNavigateTab('prev')}
                 disabled={currentDetailTab === 'info'}
@@ -1033,15 +1100,15 @@ export default function Students() {
               <button
                 onClick={() => {
                   setPage(1);
-                  setStatusFilter('inactive');
+                  setStatusFilter('pending');
                 }}
                 className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-                  statusFilter === 'inactive'
+                  statusFilter === 'pending'
                     ? 'bg-yellow-500 text-white'
                     : 'bg-white text-gray-600 hover:bg-gray-100'
                 }`}
               >
-                Inactivos
+                Pendientes
               </button>
               <button
                 onClick={() => {
@@ -1162,9 +1229,42 @@ export default function Students() {
                     <td className="px-6 py-4 text-gray-700">
                       <div className="space-y-2">
                         <div>{student.enrollmentDate ? new Date(student.enrollmentDate).toLocaleDateString('es-MX') : '—'}</div>
-                        <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(student.status)}`}>
-                          {getStatusLabel(student.status)}
-                        </span>
+                        {editingStatusStudentId === student.id ? (
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={pendingStatusValue}
+                              onChange={(event) => setPendingStatusValue(event.target.value as Student['status'])}
+                              className="rounded-full border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                            >
+                              <option value="active">Activo</option>
+                              <option value="pending">Pendiente</option>
+                              <option value="dropped">Baja</option>
+                            </select>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveStatus(student.id)}
+                              className="rounded-full bg-green-600 px-3 py-1 text-xs font-semibold text-white hover:bg-green-700"
+                            >
+                              Guardar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingStatusStudentId(null)}
+                              className="rounded-full border border-gray-300 px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleStartStatusEdit(student)}
+                            className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(student.status)}`}
+                            title="Cambiar estado"
+                          >
+                            {getStatusLabel(student.status)}
+                          </button>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 text-gray-700">

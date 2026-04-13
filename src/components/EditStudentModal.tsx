@@ -189,17 +189,27 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
           : [];
       setAvailableAilments(ailmentsList as Ailment[]);
 
-      setSelectedAilments((student.ailments || []).map((a) => a.ailmentId));
+      const studentAilmentIds = (student.ailments || [])
+        .map((ailment) => ailment.ailmentId || ailment.ailment?.id || '')
+        .filter(Boolean);
+
+      setSelectedAilments(studentAilmentIds);
       const details: Record<string, { diagnosisDate: string; notes: string }> = {};
-      (student.ailments || []).forEach((a) => {
-        details[a.ailmentId] = {
-          diagnosisDate: a.diagnosisDate || '',
-          notes: a.notes || '',
+      (student.ailments || []).forEach((ailment) => {
+        const ailmentId = ailment.ailmentId || ailment.ailment?.id || '';
+
+        if (!ailmentId) {
+          return;
+        }
+
+        details[ailmentId] = {
+          diagnosisDate: ailment.diagnosisDate || '',
+          notes: ailment.notes || '',
         };
       });
       setAilmentDetails(details);
 
-      setSavedSelectedAilments((student.ailments || []).map((a) => a.ailmentId));
+      setSavedSelectedAilments(studentAilmentIds);
       setSavedAilmentDetails(details);
 
       // Fetch enrollment/inscription
@@ -432,13 +442,16 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
       // Update ailments - delete existing and create new
       // First get current student ailments to delete them
       const currentStudentAilments = await studentAilments.list(studentId);
-      for (const sa of currentStudentAilments.data) {
+      const currentAilments = Array.isArray(currentStudentAilments.data) ? currentStudentAilments.data : [];
+      for (const sa of currentAilments) {
         await studentAilments.delete(sa.id);
       }
 
       // Create new student ailments
       if (selectedAilments.length > 0) {
-        for (const ailmentId of selectedAilments) {
+        const validSelectedAilments = selectedAilments.filter(Boolean);
+
+        for (const ailmentId of validSelectedAilments) {
           await studentAilments.create({
             studentId,
             ailmentId,
@@ -631,6 +644,11 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                 </div>
               </div>
 
+            </div>
+          )}
+
+          {currentStep === 'inscription' && (
+            <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -649,12 +667,21 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                   />
                   <FieldError message={errors.enrollmentNumber} />
                 </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Folio
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.folio}
+                    onChange={(e) => updateField('folio', e.target.value)}
+                    placeholder="Ej: FOLIO-2024-001"
+                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Se autogenerará si la dejas vacía</p>
+                </div>
               </div>
-            </div>
-          )}
 
-          {currentStep === 'inscription' && (
-            <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -743,19 +770,6 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Folio
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.folio}
-                    onChange={(e) => updateField('folio', e.target.value)}
-                    placeholder="Ej: FOLIO-2024-001"
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Se autogenerará si la dejas vacía</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Fecha de Inscripción
                   </label>
                   <input
@@ -765,6 +779,7 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
                     className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
+                <div></div>
               </div>
 
               <div>

@@ -538,6 +538,11 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
                 </div>
               </div>
 
+            </div>
+          )}
+
+          {currentStep === 'inscription' && (
+            <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -556,12 +561,21 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
                   />
                   <FieldError message={errors.enrollmentNumber} />
                 </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Folio
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.folio}
+                    onChange={(e) => updateField('folio', e.target.value)}
+                    placeholder="Ej: FOLIO-2024-001"
+                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Se autogenerará si la dejas vacía</p>
+                </div>
               </div>
-            </div>
-          )}
 
-          {currentStep === 'inscription' && (
-            <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -650,19 +664,6 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Folio
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.folio}
-                    onChange={(e) => updateField('folio', e.target.value)}
-                    placeholder="Ej: FOLIO-2024-001"
-                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">Se autogenerará si la dejas vacía</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Fecha de Inscripción
                   </label>
                   <input
@@ -672,6 +673,7 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
                     className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
                   />
                 </div>
+                <div></div>
               </div>
 
               <div>

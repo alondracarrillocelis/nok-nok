@@ -102,7 +102,7 @@ export interface Student {
   gender?: 'male' | 'female' | 'other';
   emergencyContactName?: string | null;
   emergencyContactPhone?: string | null;
-  status: 'active' | 'inactive' | 'dropped';
+  status: 'active' | 'pending' | 'dropped';
   createdAt: string;
   updatedAt: string;
 }
@@ -123,10 +123,71 @@ export interface CreateStudentPayload {
   gender: 'male' | 'female' | 'other';
   emergencyContactName?: string | null;
   emergencyContactPhone?: string | null;
-  status: 'active' | 'inactive' | 'dropped';
+  status: 'active' | 'pending' | 'dropped';
 }
 
 export type UpdateStudentPayload = Partial<CreateStudentPayload>;
+
+type RawStudent = StudentDetailResponse & {
+  status?: string | null;
+};
+
+const normalizeStudentStatusValue = (value?: string | null): Student['status'] => {
+  const normalized = (value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  switch (normalized) {
+    case 'active':
+    case 'activo':
+      return 'active';
+    case 'inactive':
+    case 'inactivo':
+    case 'pending':
+    case 'pendiente':
+      return 'pending';
+    case 'dropped':
+    case 'baja':
+      return 'dropped';
+    default:
+      return 'active';
+  }
+};
+
+const serializeStudentStatusValue = (value?: string | null): 'activo' | 'pendiente' | 'baja' | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  switch (normalizeStudentStatusValue(value)) {
+    case 'active':
+      return 'activo';
+    case 'pending':
+      return 'pendiente';
+    case 'dropped':
+      return 'baja';
+    default:
+      return undefined;
+  }
+};
+
+const normalizeStudent = <T extends RawStudent>(student: T): T & { status: Student['status'] } => ({
+  ...student,
+  status: normalizeStudentStatusValue(student.status),
+});
+
+const normalizeStudentPayload = <T extends UpdateStudentPayload | CreateStudentPayload>(data: T): T => {
+  if (!('status' in data) || !data.status) {
+    return data;
+  }
+
+  return {
+    ...data,
+    status: serializeStudentStatusValue(data.status) as T['status'],
+  };
+};
 
 export interface Tutor {
   id: string;
@@ -293,12 +354,73 @@ export interface UpdateUserPayload {
   maternalSurname?: string | null;
 }
 
+type RawUser = User & {
+  status?: string | null;
+};
+
+const normalizeUserStatusValue = (value?: string | null): User['status'] => {
+  const normalized = (value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  switch (normalized) {
+    case 'activo':
+    case 'active':
+      return 'activo';
+    case 'inactivo':
+    case 'inactive':
+      return 'inactivo';
+    default:
+      return 'activo';
+  }
+};
+
+const serializeUserStatusValue = (value?: string | null): 'activo' | 'inactivo' | 'active' | 'inactive' | undefined => {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = (value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  if (normalized === 'activo' || normalized === 'active') {
+    return 'active';
+  }
+
+  if (normalized === 'inactivo' || normalized === 'inactive') {
+    return 'inactive';
+  }
+
+  return undefined;
+};
+
+const normalizeUser = <T extends RawUser>(user: T): T & { status: User['status'] } => ({
+  ...user,
+  status: normalizeUserStatusValue(user.status),
+});
+
+const normalizeUserPayload = <T extends UpdateUserPayload>(data: T): T => {
+  if (!data.status) {
+    return data;
+  }
+
+  return {
+    ...data,
+    status: serializeUserStatusValue(data.status) as T['status'],
+  };
+};
+
 export interface Enrollment {
   id: string;
   studentId: string;
   folio?: string | null;
   enrollmentDate: string;
-  enrollmentType?: 'semanal' | 'mensual' | 'por_nivel' | 'programa_completo' | null;
+  enrollmentType?: 'semanal' | 'mensual' | 'trimestral' | 'anual' | 'por_nivel' | 'programa_completo' | null;
   programId?: string | null;
   program?: string | null;
   representativeId?: string | null;
@@ -321,6 +443,10 @@ export interface StudentAilment {
   notes?: string;
 }
 
+type StudentAilmentsListResponse =
+  | { data?: StudentAilment[] | null }
+  | StudentAilment[];
+
 export interface Document {
   id: string;
   studentId: string;
@@ -342,6 +468,53 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3
 type RawEnrollment = Partial<Enrollment> & {
   program?: string | { id?: string | null; name?: string | null } | null;
   programId?: string | null;
+  student_id?: string | null;
+  enrollment_date?: string | null;
+  enrollment_type?: string | null;
+  representative_id?: string | null;
+  due_date?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+type EnrollmentsListResponse =
+  | { data?: RawEnrollment[] | null }
+  | RawEnrollment[];
+
+const normalizeEnrollmentTypeValue = (value?: string | null): Enrollment['enrollmentType'] => {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\s-]+/g, '_');
+
+  switch (normalized) {
+    case 'semanal':
+    case 'weekly':
+      return 'semanal';
+    case 'mensual':
+    case 'monthly':
+      return 'mensual';
+    case 'trimestral':
+    case 'quarterly':
+      return 'trimestral';
+    case 'anual':
+    case 'annual':
+      return 'anual';
+    case 'por_nivel':
+    case 'pornivel':
+      return 'por_nivel';
+    case 'programa_completo':
+    case 'programacompleto':
+      return 'programa_completo';
+    default:
+      return normalized as Enrollment['enrollmentType'];
+  }
 };
 
 const isUuid = (value?: string | null): value is string => {
@@ -352,6 +525,14 @@ const normalizeEnrollment = (enrollment: RawEnrollment): Enrollment => {
   let programId = enrollment.programId ?? null;
   const rawProgram = enrollment.program as string | { id?: string | null; name?: string | null } | null | undefined;
   let programName = typeof rawProgram === 'string' ? rawProgram : null;
+
+  const studentId = enrollment.studentId || enrollment.student_id || '';
+  const enrollmentDate = enrollment.enrollmentDate || enrollment.enrollment_date || '';
+  const enrollmentType = normalizeEnrollmentTypeValue(enrollment.enrollmentType || enrollment.enrollment_type || null);
+  const representativeId = enrollment.representativeId || enrollment.representative_id || null;
+  const dueDate = enrollment.dueDate || enrollment.due_date || null;
+  const createdAt = enrollment.createdAt || enrollment.created_at;
+  const updatedAt = enrollment.updatedAt || enrollment.updated_at;
 
   if (programName && isUuid(programName) && !programId) {
     programId = programName;
@@ -365,22 +546,26 @@ const normalizeEnrollment = (enrollment: RawEnrollment): Enrollment => {
 
   return {
     id: enrollment.id || '',
-    studentId: enrollment.studentId || '',
+    studentId,
     folio: enrollment.folio ?? null,
-    enrollmentDate: enrollment.enrollmentDate || '',
-    enrollmentType: enrollment.enrollmentType ?? null,
+    enrollmentDate,
+    enrollmentType,
     programId,
     program: programName,
-    representativeId: enrollment.representativeId ?? null,
+    representativeId,
     status: enrollment.status || '',
-    dueDate: enrollment.dueDate ?? null,
-    createdAt: enrollment.createdAt,
-    updatedAt: enrollment.updatedAt,
+    dueDate,
+    createdAt,
+    updatedAt,
   };
 };
 
 const normalizeEnrollmentPayload = (data: Partial<Enrollment>) => {
   const payload = { ...data };
+
+  if (payload.enrollmentType) {
+    payload.enrollmentType = normalizeEnrollmentTypeValue(payload.enrollmentType);
+  }
 
   if (!payload.programId && isUuid(payload.program || null)) {
     payload.programId = payload.program || null;
@@ -630,35 +815,51 @@ export const students = {
     page = 1,
     limit = 20,
   }: {
-    status?: 'active' | 'inactive' | 'dropped';
+    status?: 'active' | 'pending' | 'dropped';
     search?: string;
     page?: number;
     limit?: number;
   } = {}): Promise<StudentsListResponse> => {
     const params = new URLSearchParams();
-    if (status) params.append('status', status);
+    if (status) {
+      const serializedStatus = serializeStudentStatusValue(status);
+      if (serializedStatus) {
+        params.append('status', serializedStatus);
+      }
+    }
     if (search) params.append('search', search);
     params.append('page', String(page));
     params.append('limit', String(limit));
-    return apiCall(`${ENDPOINTS.STUDENTS.LIST}?${params.toString()}`, { method: 'GET' });
+    const response = await apiCall<StudentsListResponse>(`${ENDPOINTS.STUDENTS.LIST}?${params.toString()}`, { method: 'GET' });
+
+    return {
+      ...response,
+      data: (response.data || []).map((student) => normalizeStudent(student as RawStudent)),
+    };
   },
 
   create: async (student: CreateStudentPayload): Promise<Student> => {
-    return apiCall(ENDPOINTS.STUDENTS.CREATE, {
+    const response = await apiCall<RawStudent>(ENDPOINTS.STUDENTS.CREATE, {
       method: 'POST',
-      body: JSON.stringify(student),
+      body: JSON.stringify(normalizeStudentPayload(student)),
     });
+
+    return normalizeStudent(response);
   },
 
   getById: async (id: string): Promise<StudentDetailResponse> => {
-    return apiCall(ENDPOINTS.STUDENTS.GET_BY_ID(id), { method: 'GET' });
+    const response = await apiCall<RawStudent>(ENDPOINTS.STUDENTS.GET_BY_ID(id), { method: 'GET' });
+
+    return normalizeStudent(response);
   },
 
   update: async (id: string, data: UpdateStudentPayload): Promise<Student> => {
-    return apiCall(ENDPOINTS.STUDENTS.UPDATE(id), {
+    const response = await apiCall<RawStudent>(ENDPOINTS.STUDENTS.UPDATE(id), {
       method: 'PATCH',
-      body: JSON.stringify(data),
+      body: JSON.stringify(normalizeStudentPayload(data)),
     });
+
+    return normalizeStudent(response);
   },
 
   delete: async (id: string): Promise<StudentDeleteResponse> => {
@@ -786,7 +987,8 @@ export const ailments = {
 
 export const users = {
   list: async (): Promise<User[]> => {
-    return apiCall(ENDPOINTS.USERS.LIST, { method: 'GET' }) as Promise<User[]>;
+    const response = await apiCall<RawUser[]>(ENDPOINTS.USERS.LIST, { method: 'GET' });
+    return (response || []).map((user) => normalizeUser(user));
   },
 
   create: async (user: CreateUserPayload): Promise<User> => {
@@ -800,17 +1002,19 @@ export const users = {
     const stored = getSessionValue('user_data');
     if (!stored) throw new Error('No hay datos de usuario');
     const { id } = JSON.parse(stored) as { id: string };
-    const allUsers = await apiCall(ENDPOINTS.USERS.LIST, { method: 'GET' }) as User[];
+    const allUsers = await users.list();
     const found = Array.isArray(allUsers) ? allUsers.find(u => u.id === id) : undefined;
     if (!found) throw new Error('Usuario no encontrado');
     return found;
   },
 
   update: async (id: string, data: UpdateUserPayload): Promise<User> => {
-    return apiCall(ENDPOINTS.USERS.UPDATE(id), {
+    const response = await apiCall<RawUser>(ENDPOINTS.USERS.UPDATE(id), {
       method: 'PATCH',
-      body: JSON.stringify(data),
-    }) as Promise<User>;
+      body: JSON.stringify(normalizeUserPayload(data)),
+    });
+
+    return normalizeUser(response);
   },
 };
 
@@ -820,7 +1024,11 @@ export const users = {
 
 export const studentAilments = {
   list: async (studentId: string): Promise<{ data: StudentAilment[] }> => {
-    return apiCall(ENDPOINTS.STUDENT_AILMENTS.LIST(studentId), { method: 'GET' });
+    const response = await apiCall<StudentAilmentsListResponse>(ENDPOINTS.STUDENT_AILMENTS.LIST(studentId), { method: 'GET' });
+
+    return {
+      data: Array.isArray(response) ? response : response.data || [],
+    };
   },
 
   create: async (data: { studentId: string; ailmentId: string; status?: AilmentStatus; diagnosisDate?: string; notes?: string }): Promise<StudentAilment> => {
@@ -869,10 +1077,11 @@ export const studentSubjects = {
 
 export const enrollments = {
   list: async (studentId?: string): Promise<{ data: Enrollment[] }> => {
-    const response = await apiCall<{ data: RawEnrollment[] }>(ENDPOINTS.ENROLLMENTS.LIST(studentId), { method: 'GET' });
+    const response = await apiCall<EnrollmentsListResponse>(ENDPOINTS.ENROLLMENTS.LIST(studentId), { method: 'GET' });
+    const rows = Array.isArray(response) ? response : response.data || [];
 
     return {
-      data: (response.data || []).map(normalizeEnrollment),
+      data: rows.map(normalizeEnrollment),
     };
   },
 

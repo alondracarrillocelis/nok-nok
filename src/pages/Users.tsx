@@ -1,5 +1,5 @@
 import { useEffect, useState, lazy, Suspense } from 'react';
-import { Search, Plus, MoreVertical } from 'lucide-react';
+import { Search, Plus, MoreVertical, Pencil, UserCheck, UserX } from 'lucide-react';
 import { users as usersApi } from '../lib/api';
 import Layout from '../components/Layout';
 const AddUserModal = lazy(() => import('../components/AddUserModal'));
@@ -379,18 +379,20 @@ export default function Users() {
                         {formatDate(user.createdAt)}
                       </td>
                       <td className="px-6 py-4">
-                        <button
-                          onClick={() => setOpenMenuId(openMenuId === user.id ? null : user.id)}
-                          className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                        >
-                          <MoreVertical size={18} className="text-gray-600" />
-                        </button>
-                        {openMenuId === user.id && (
-                          <div className="absolute right-6 mt-0 w-44 bg-white rounded-lg shadow-xl border border-gray-200 z-10">
+                        <div className="relative inline-block">
+                          <button
+                            onClick={() => setOpenMenuId(openMenuId === user.id ? null : user.id)}
+                            className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                          >
+                            <MoreVertical size={18} className="text-gray-600" />
+                          </button>
+                          {openMenuId === user.id && (
+                            <div className="absolute right-0 top-full mt-2 w-44 bg-white rounded-lg shadow-xl border border-gray-200 z-10">
                             <button
                               onClick={() => openEditModal(user)}
-                              className="w-full text-left px-4 py-2 hover:bg-blue-50 text-gray-700 font-semibold border-b border-gray-100"
+                              className="flex w-full items-center gap-2 text-left px-4 py-2 hover:bg-blue-50 text-gray-700 font-semibold border-b border-gray-100"
                             >
+                              <Pencil size={16} className="text-blue-600" />
                               Editar usuario
                             </button>
                             <button
@@ -416,12 +418,18 @@ export default function Users() {
                                   },
                                 });
                               }}
-                              className="w-full text-left px-4 py-2 hover:bg-gray-50 text-gray-700 font-semibold"
+                              className="flex w-full items-center gap-2 text-left px-4 py-2 hover:bg-gray-50 text-gray-700 font-semibold"
                             >
+                              {user.status === 'activo' ? (
+                                <UserX size={16} className="text-red-600" />
+                              ) : (
+                                <UserCheck size={16} className="text-green-600" />
+                              )}
                               {user.status === 'activo' ? 'Desactivar' : 'Activar'}
                             </button>
-                          </div>
-                        )}
+                            </div>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))

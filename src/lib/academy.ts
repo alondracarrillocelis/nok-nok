@@ -6,11 +6,13 @@ export interface ProgramOption {
   description?: string;
 }
 
-export type EnrollmentType = 'semanal' | 'mensual' | 'por_nivel' | 'programa_completo';
+export type EnrollmentType = 'semanal' | 'mensual' | 'trimestral' | 'anual' | 'por_nivel' | 'programa_completo';
 
 export const ENROLLMENT_TYPE_OPTIONS: Array<{ value: EnrollmentType; label: string }> = [
   { value: 'semanal', label: 'Semanal' },
   { value: 'mensual', label: 'Mensual' },
+  { value: 'trimestral', label: 'Trimestral' },
+  { value: 'anual', label: 'Anual' },
   { value: 'por_nivel', label: 'Por nivel' },
   { value: 'programa_completo', label: 'Programa completo' },
 ];

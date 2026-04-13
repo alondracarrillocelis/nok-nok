@@ -13,8 +13,8 @@ import {
   LineChart,
   Line,
 } from 'recharts';
-import { Enrollment, enrollments, students, Student } from '../lib/api';
-import { getEnrollmentTypeLabel, sortEnrollmentsByDate } from '../lib/academy';
+import { Enrollment, enrollments, programs as programsApi, Program, students, Student } from '../lib/api';
+import { getEnrollmentTypeLabel, getProgramNameFromEnrollment, sortEnrollmentsByDate } from '../lib/academy';
 import Layout from '../components/Layout';
 import { showToast } from '../components/Toast';
 
@@ -92,6 +92,10 @@ const getEnrollmentDueDate = (enrollment: Enrollment) => {
       return addDays(enrollmentDate, 7);
     case 'mensual':
       return addMonths(enrollmentDate, 1);
+    case 'trimestral':
+      return addMonths(enrollmentDate, 3);
+    case 'anual':
+      return addMonths(enrollmentDate, 12);
     default:
       return null;
   }
@@ -116,10 +120,6 @@ const getDuePriority = (daysUntilDue: number | null) => {
   return daysUntilDue;
 };
 
-const getProgramNameFromEnrollment = (enrollment?: Enrollment, student?: Student) => {
-  return enrollment?.program || student?.program || student?.currentLevel || 'Sin programa';
-};
-
 const loadAllStudents = async () => {
   const firstPage = await students.list({ page: 1, limit: 100 });
   const totalPages = firstPage.pagination?.totalPages || 1;
@@ -141,6 +141,7 @@ const loadAllStudents = async () => {
 export default function Dashboard() {
   const [allStudents, setAllStudents] = useState<Student[]>([]);
   const [allEnrollments, setAllEnrollments] = useState<Enrollment[]>([]);
+  const [programCatalog, setProgramCatalog] = useState<Program[]>([]);
   const [loading, setLoading] = useState(true);
   const [expiringEnrollments, setExpiringEnrollments] = useState<ExpiringEnrollment[]>([]);
   const [programSlide, setProgramSlide] = useState(0);
@@ -152,12 +153,19 @@ export default function Dashboard() {
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      const [studentsData, enrollmentsResponse] = await Promise.all([loadAllStudents(), enrollments.list()]);
-      const nextEnrollments = enrollmentsResponse.data || [];
+      const [studentsData, enrollmentsResponse, programsResponse] = await Promise.all([
+        loadAllStudents(),
+        enrollments.list(),
+        programsApi.list(),
+      ]);
+      const nextEnrollments = (enrollmentsResponse.data || []).filter(
+        (enrollment) => enrollment.studentId && enrollment.status !== 'dropped' && enrollment.status !== 'baja'
+      );
       const studentsById = new Map(studentsData.map((student) => [student.id, student]));
 
       setAllStudents(studentsData);
       setAllEnrollments(nextEnrollments);
+      setProgramCatalog(programsResponse);
 
       const latestEnrollments = Array.from(
         nextEnrollments.reduce((map, enrollment) => {
@@ -184,7 +192,7 @@ export default function Dashboard() {
           return {
             id: enrollment.id,
             studentName: formatStudentName(student),
-            program: getProgramNameFromEnrollment(enrollment, student),
+            program: getProgramNameFromEnrollment(programsResponse, enrollment),
             enrollmentDate: isValidDate(enrollment.enrollmentDate)
               ? new Date(enrollment.enrollmentDate).toLocaleDateString('es-MX')
               : 'Sin fecha',
@@ -195,7 +203,7 @@ export default function Dashboard() {
             daysUntilDue,
           } satisfies ExpiringEnrollment;
         })
-        .filter((enrollment) => enrollment.dueDate || enrollment.enrollmentType !== 'Sin tipo')
+        .filter((enrollment) => enrollment.program !== 'Sin programa' && (enrollment.dueDate || enrollment.enrollmentType !== 'Sin tipo'))
         .sort((left, right) => {
           const dueComparison = getDuePriority(left.daysUntilDue) - getDuePriority(right.daysUntilDue);
           if (dueComparison !== 0) return dueComparison;
@@ -214,16 +222,47 @@ export default function Dashboard() {
 
   const totalStudents = allStudents.length;
 
+  const studentEnrollmentTimeline = useMemo(() => {
+    const latestEnrollmentsByStudent = allEnrollments.reduce((map, enrollment) => {
+      const previous = map.get(enrollment.studentId);
+
+      if (!previous) {
+        map.set(enrollment.studentId, enrollment);
+        return map;
+      }
+
+      const sorted = sortEnrollmentsByDate([previous, enrollment]);
+      map.set(enrollment.studentId, sorted[0]);
+      return map;
+    }, new Map<string, Enrollment>());
+
+    return allStudents
+      .map((student) => {
+        const fallbackEnrollment = latestEnrollmentsByStudent.get(student.id);
+        const enrollmentDate = student.enrollmentDate || fallbackEnrollment?.enrollmentDate || null;
+
+        if (!isValidDate(enrollmentDate)) {
+          return null;
+        }
+
+        return {
+          studentId: student.id,
+          enrollmentDate: enrollmentDate as string,
+        };
+      })
+      .filter((entry): entry is { studentId: string; enrollmentDate: string } => Boolean(entry));
+  }, [allEnrollments, allStudents]);
+
   const statusCounts = useMemo(() => {
     const counts = {
       active: 0,
-      inactive: 0,
+      pending: 0,
       dropped: 0,
     };
 
     for (const student of allStudents) {
       if (student.status === 'active') counts.active += 1;
-      else if (student.status === 'inactive') counts.inactive += 1;
+      else if (student.status === 'pending') counts.pending += 1;
       else if (student.status === 'dropped') counts.dropped += 1;
     }
 
@@ -232,16 +271,15 @@ export default function Dashboard() {
 
   const thisMonthEnrollments = useMemo(() => {
     const now = new Date();
-    return allEnrollments.filter((enrollment) => {
-      if (!isValidDate(enrollment.enrollmentDate)) return false;
-      const d = new Date(enrollment.enrollmentDate);
+    return studentEnrollmentTimeline.filter((entry) => {
+      const d = new Date(entry.enrollmentDate);
       return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
     }).length;
-  }, [allEnrollments]);
+  }, [studentEnrollmentTimeline]);
 
   const statusChartData: StatusPoint[] = [
     { name: 'Activos', value: statusCounts.active },
-    { name: 'Inactivos', value: statusCounts.inactive },
+    { name: 'Pendientes', value: statusCounts.pending },
     { name: 'Dados de baja', value: statusCounts.dropped },
   ];
 
@@ -257,37 +295,52 @@ export default function Dashboard() {
   }, [allStudents]);
 
   const programChartData: ProgramPoint[] = useMemo(() => {
-    const studentsById = new Map(allStudents.map((student) => [student.id, student]));
-    const map = new Map<string, number>();
+    const countsByProgramId = new Map<string, Set<string>>();
+    const countsByProgramName = new Map<string, Set<string>>();
 
-    const latestEnrollments = Array.from(
-      allEnrollments.reduce((accumulator, enrollment) => {
-        const previous = accumulator.get(enrollment.studentId);
-        if (!previous) {
-          accumulator.set(enrollment.studentId, enrollment);
-          return accumulator;
-        }
-
-        const sorted = sortEnrollmentsByDate([previous, enrollment]);
-        accumulator.set(enrollment.studentId, sorted[0]);
-        return accumulator;
-      }, new Map<string, Enrollment>()).values()
-    );
-
-    for (const enrollment of latestEnrollments) {
-      const student = studentsById.get(enrollment.studentId);
-      const program = getProgramNameFromEnrollment(enrollment, student);
-      map.set(program, (map.get(program) || 0) + 1);
+    for (const program of programCatalog) {
+      countsByProgramId.set(program.id, new Set<string>());
+      countsByProgramName.set(program.name, new Set<string>());
     }
 
-    return Array.from(map.entries()).map(([program, count]) => ({ program, count }));
-  }, [allEnrollments, allStudents]);
+    for (const enrollment of allEnrollments) {
+      const resolvedProgram = enrollment.programId
+        ? programCatalog.find((program) => program.id === enrollment.programId) || null
+        : null;
+      const resolvedProgramName = resolvedProgram?.name || getProgramNameFromEnrollment(programCatalog, enrollment);
+
+      if (resolvedProgram?.id) {
+        countsByProgramId.get(resolvedProgram.id)?.add(enrollment.studentId);
+      }
+
+      if (resolvedProgramName && resolvedProgramName !== 'Sin programa') {
+        if (!countsByProgramName.has(resolvedProgramName)) {
+          countsByProgramName.set(resolvedProgramName, new Set<string>());
+        }
+        countsByProgramName.get(resolvedProgramName)?.add(enrollment.studentId);
+      }
+    }
+
+    const existingPrograms = programCatalog.map((program) => ({
+      program: program.name,
+      count: countsByProgramId.get(program.id)?.size || countsByProgramName.get(program.name)?.size || 0,
+    }));
+
+    const orphanPrograms = Array.from(countsByProgramName.entries())
+      .filter(([programName]) => !programCatalog.some((program) => program.name === programName))
+      .map(([programName, studentIds]) => ({
+        program: programName,
+        count: studentIds.size,
+      }));
+
+    return [...existingPrograms, ...orphanPrograms];
+  }, [allEnrollments, programCatalog]);
 
   const programSlides = useMemo(() => {
     if (programChartData.length === 0) {
       return [{ program: 'Sin programa', count: 0 }];
     }
-    return programChartData.sort((a, b) => b.count - a.count);
+    return [...programChartData].sort((a, b) => b.count - a.count);
   }, [programChartData]);
 
   const activeProgram = programSlides[Math.min(programSlide, programSlides.length - 1)] || { program: 'Sin programa', count: 0 };
@@ -340,16 +393,15 @@ export default function Dashboard() {
       const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
       const monthLabel = date.toLocaleString('es-MX', { month: 'short' }).toUpperCase();
-      const altas = allEnrollments.filter((enrollment) => {
-        if (!isValidDate(enrollment.enrollmentDate)) return false;
-        const d = new Date(enrollment.enrollmentDate);
+      const altas = studentEnrollmentTimeline.filter((entry) => {
+        const d = new Date(entry.enrollmentDate);
         const dKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
         return dKey === key;
       }).length;
       months.push({ month: monthLabel, altas });
     }
     return months;
-  }, [allEnrollments]);
+  }, [studentEnrollmentTimeline]);
 
   if (loading) {
     return (
@@ -374,8 +426,8 @@ export default function Dashboard() {
             <p className="text-5xl font-black text-green-600 mt-2">{statusCounts.active}</p>
           </div>
           <div className="bg-white rounded-3xl shadow-lg p-6">
-            <p className="text-xs uppercase text-gray-500 font-semibold">Inactivos</p>
-            <p className="text-5xl font-black text-yellow-500 mt-2">{statusCounts.inactive}</p>
+            <p className="text-xs uppercase text-gray-500 font-semibold">Pendientes</p>
+            <p className="text-5xl font-black text-yellow-500 mt-2">{statusCounts.pending}</p>
           </div>
           <div className="bg-white rounded-3xl shadow-lg p-6">
             <p className="text-xs uppercase text-gray-500 font-semibold">Bajas</p>
