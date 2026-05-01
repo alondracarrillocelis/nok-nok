@@ -365,9 +365,7 @@ export default function AddStudentModal({ onClose, onSuccess, previewMode = fals
     if (!formData.currentGrade.trim()) {
       newErrors.currentGrade = 'El grado actual es obligatorio';
     }
-    if (!formData.program) {
-      newErrors.program = 'El programa es obligatorio';
-    }
+    // Programa es opcional - puede asignarse después
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -439,6 +437,7 @@ export default function AddStudentModal({ onClose, onSuccess, previewMode = fals
         enrollmentDate: formData.enrollmentDate || formData.inscriptionDate || undefined,
         currentLevel: formData.currentLevel,
         currentGrade: formData.currentGrade,
+        program: formData.program || undefined,
         shift: formData.shift,
         representative: formData.representative || undefined,
         gender: formData.gender,
@@ -480,7 +479,7 @@ export default function AddStudentModal({ onClose, onSuccess, previewMode = fals
       }
 
       // Crear inscripción
-      if (student) {
+      if (student && formData.program) {
         await enrollments.create({
           studentId: student.id,
           enrollmentDate: formData.inscriptionDate,
@@ -737,11 +736,7 @@ export default function AddStudentModal({ onClose, onSuccess, previewMode = fals
                       updateField('program', e.target.value);
                       updateField('inscriptionProgram', e.target.value);
                     }}
-                    className={`w-full px-4 py-2 rounded-lg border focus:outline-none focus:ring-2 ${
-                      errors.program
-                        ? 'border-red-400 focus:ring-red-500'
-                        : 'border-gray-300 focus:ring-green-500'
-                    }`}
+                    className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
                   >
                     <option value="">Seleccionar programa</option>
                     {availablePrograms.map((program) => (
@@ -750,7 +745,7 @@ export default function AddStudentModal({ onClose, onSuccess, previewMode = fals
                       </option>
                     ))}
                   </select>
-                  <FieldError message={errors.program} />
+                  <p className="text-xs text-gray-500 mt-1">Opcional. Si no lo asignas ahora, puedes hacerlo después</p>
                 </div>
               </div>
 

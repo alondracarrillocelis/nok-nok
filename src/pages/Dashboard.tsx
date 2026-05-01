@@ -145,7 +145,7 @@ export default function Dashboard() {
   const [allEnrollments, setAllEnrollments] = useState<Enrollment[]>([]);
   const [programCatalog, setProgramCatalog] = useState<Program[]>([]);
   const [loading, setLoading] = useState(true);
-  const [expiringEnrollments, setExpiringEnrollments] = useState<ExpiringEnrollment[]>([]);
+  const [, setExpiringEnrollments] = useState<ExpiringEnrollment[]>([]);
   const [programSlide, setProgramSlide] = useState(0);
 
   useEffect(() => {
@@ -553,7 +553,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl shadow-lg p-6">
+        {/* <div className="bg-white rounded-3xl shadow-lg p-6">
           <h2 className="text-lg font-bold text-gray-800 mb-4">Inscripciones Próximas a Vencer</h2>
           {expiringEnrollments.length === 0 ? (
             <p className="text-gray-500 text-sm">No hay inscripciones próximas a vencer.</p>
@@ -585,7 +585,7 @@ export default function Dashboard() {
               </table>
             </div>
           )}
-        </div>
+        </div> */}
       </div>
     </Layout>
   );

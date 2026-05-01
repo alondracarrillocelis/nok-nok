@@ -14,7 +14,7 @@ interface UserProfile {
   email: string;
   phone: string | null;
   role: 'tutor' | 'admin';
-  status: 'activo' | 'inactivo';
+  status: 'active' | 'inactive';
   createdAt: string;
 }
 
@@ -101,7 +101,7 @@ export default function Profile() {
         email: user.email || '',
         phone: null,
         role: 'tutor',
-        status: 'activo',
+        status: 'active',
       };
 
       // Since users.create() requires password, we'll use a direct API call without password

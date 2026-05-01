@@ -429,6 +429,7 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
         enrollmentDate: formData.enrollmentDate || formData.inscriptionDate || undefined,
         currentLevel: formData.currentLevel,
         currentGrade: formData.currentGrade,
+        program: formData.program || undefined,
         shift: formData.shift,
         representative: formData.representative || undefined,
         gender: formData.gender,

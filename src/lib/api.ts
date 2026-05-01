@@ -164,18 +164,18 @@ const normalizeStudentStatusValue = (value?: string | null): Student['status'] =
   }
 };
 
-const serializeStudentStatusValue = (value?: string | null): 'activo' | 'pendiente' | 'baja' | undefined => {
+const serializeStudentStatusValue = (value?: string | null): 'active' | 'pending' | 'dropped' | undefined => {
   if (!value) {
     return undefined;
   }
 
   switch (normalizeStudentStatusValue(value)) {
     case 'active':
-      return 'activo';
+      return 'active';
     case 'pending':
-      return 'pendiente';
+      return 'pending';
     case 'dropped':
-      return 'baja';
+      return 'dropped';
     default:
       return undefined;
   }
@@ -339,7 +339,7 @@ export interface User {
   email: string;
   phone: string | null;
   role: 'admin' | 'tutor';
-  status: 'activo' | 'inactivo';
+  status: 'active' | 'inactive';
   createdAt: string;
 }
 
@@ -354,7 +354,7 @@ export interface CreateUserPayload {
 }
 
 export interface UpdateUserPayload {
-  status?: 'activo' | 'inactivo';
+  status?: 'active' | 'inactive';
   role?: 'admin' | 'tutor';
   phone?: string;
   firstName?: string;
@@ -376,16 +376,16 @@ const normalizeUserStatusValue = (value?: string | null): User['status'] => {
   switch (normalized) {
     case 'activo':
     case 'active':
-      return 'activo';
+      return 'active';
     case 'inactivo':
     case 'inactive':
-      return 'inactivo';
+      return 'inactive';
     default:
-      return 'activo';
+      return 'active';
   }
 };
 
-const serializeUserStatusValue = (value?: string | null): 'activo' | 'inactivo' | 'active' | 'inactive' | undefined => {
+const serializeUserStatusValue = (value?: string | null): 'active' | 'inactive' | undefined => {
   if (!value) {
     return undefined;
   }
@@ -471,11 +471,24 @@ export interface CreateDocumentPayload {
   fileUrl: string;
 }
 
+type RawDocument = Partial<Document> & {
+  student_id?: string | null;
+  document_type?: string | null;
+  file_name?: string | null;
+  file_url?: string | null;
+  uploaded_at?: string | null;
+};
+
+type DocumentsListResponse =
+  | { data?: RawDocument[] | null }
+  | RawDocument[];
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type RawEnrollment = Partial<Enrollment> & {
   program?: string | { id?: string | null; name?: string | null } | null;
   programId?: string | null;
+  program_id?: string | null;
   student_id?: string | null;
   enrollment_date?: string | null;
   enrollment_type?: string | null;
@@ -488,6 +501,10 @@ type RawEnrollment = Partial<Enrollment> & {
 type EnrollmentsListResponse =
   | { data?: RawEnrollment[] | null }
   | RawEnrollment[];
+
+const readListResponseRows = <T>(response: { data?: T[] | null } | T[]): T[] => {
+  return Array.isArray(response) ? response : response.data || [];
+};
 
 const normalizeEnrollmentTypeValue = (value?: string | null): Enrollment['enrollmentType'] => {
   if (!value) {
@@ -530,7 +547,7 @@ const isUuid = (value?: string | null): value is string => {
 };
 
 const normalizeEnrollment = (enrollment: RawEnrollment): Enrollment => {
-  let programId = enrollment.programId ?? null;
+  let programId = enrollment.programId ?? enrollment.program_id ?? null;
   const rawProgram = enrollment.program as string | { id?: string | null; name?: string | null } | null | undefined;
   let programName = typeof rawProgram === 'string' ? rawProgram : null;
 
@@ -567,6 +584,15 @@ const normalizeEnrollment = (enrollment: RawEnrollment): Enrollment => {
     updatedAt,
   };
 };
+
+const normalizeDocument = (document: RawDocument): Document => ({
+  id: document.id || '',
+  studentId: document.studentId || document.student_id || '',
+  documentType: document.documentType || document.document_type || '',
+  fileName: document.fileName || document.file_name || '',
+  fileUrl: document.fileUrl || document.file_url || '',
+  uploadedAt: document.uploadedAt || document.uploaded_at || '',
+});
 
 const normalizeEnrollmentPayload = (data: Partial<Enrollment>) => {
   const payload = { ...data };
@@ -904,7 +930,10 @@ export const students = {
   getById: async (id: string): Promise<StudentDetailResponse> => {
     const response = await apiCall<RawStudent>(ENDPOINTS.STUDENTS.GET_BY_ID(id), { method: 'GET' });
 
-    return normalizeStudent(response);
+    return {
+      ...normalizeStudent(response),
+      documents: (response.documents || []).map((document) => normalizeDocument(document as RawDocument)),
+    };
   },
 
   update: async (id: string, data: UpdateStudentPayload): Promise<Student> => {
@@ -1132,10 +1161,34 @@ export const studentSubjects = {
 export const enrollments = {
   list: async (studentId?: string): Promise<{ data: Enrollment[] }> => {
     const response = await apiCall<EnrollmentsListResponse>(ENDPOINTS.ENROLLMENTS.LIST(studentId), { method: 'GET' });
-    const rows = Array.isArray(response) ? response : response.data || [];
+    let rows = readListResponseRows(response);
+
+    if (studentId && rows.length === 0) {
+      try {
+        const snakeResponse = await apiCall<EnrollmentsListResponse>(ENDPOINTS.ENROLLMENTS.LIST_BY_STUDENT_SNAKE(studentId), { method: 'GET' });
+        rows = readListResponseRows(snakeResponse);
+      } catch {
+        rows = [];
+      }
+    }
+
+    const normalizedRows = rows.map(normalizeEnrollment);
+
+    if (studentId && normalizedRows.length === 0) {
+      try {
+        const fallbackResponse = await apiCall<EnrollmentsListResponse>(ENDPOINTS.ENROLLMENTS.LIST(), { method: 'GET' });
+        const fallbackRows = readListResponseRows(fallbackResponse);
+
+        return {
+          data: fallbackRows.map(normalizeEnrollment).filter((enrollment) => enrollment.studentId === studentId),
+        };
+      } catch {
+        return { data: normalizedRows };
+      }
+    }
 
     return {
-      data: rows.map(normalizeEnrollment),
+      data: normalizedRows,
     };
   },
 
@@ -1174,7 +1227,32 @@ export const enrollments = {
 
 export const documents = {
   list: async (studentId?: string): Promise<Document[]> => {
-    return apiCall(ENDPOINTS.DOCUMENTS.LIST(studentId), { method: 'GET' });
+    const response = await apiCall<DocumentsListResponse>(ENDPOINTS.DOCUMENTS.LIST(studentId), { method: 'GET' });
+    let rows = readListResponseRows(response);
+
+    if (studentId && rows.length === 0) {
+      try {
+        const snakeResponse = await apiCall<DocumentsListResponse>(ENDPOINTS.DOCUMENTS.LIST_BY_STUDENT_SNAKE(studentId), { method: 'GET' });
+        rows = readListResponseRows(snakeResponse);
+      } catch {
+        rows = [];
+      }
+    }
+
+    const normalizedRows = rows.map(normalizeDocument);
+
+    if (studentId && normalizedRows.length === 0) {
+      try {
+        const fallbackResponse = await apiCall<DocumentsListResponse>(ENDPOINTS.DOCUMENTS.LIST(), { method: 'GET' });
+        const fallbackRows = readListResponseRows(fallbackResponse);
+
+        return fallbackRows.map(normalizeDocument).filter((document) => document.studentId === studentId);
+      } catch {
+        return normalizedRows;
+      }
+    }
+
+    return normalizedRows;
   },
 
   upload: async (payload: CreateDocumentPayload): Promise<Document> => {

@@ -17,6 +17,7 @@ interface Student {
   enrollmentNumber: string;
   currentLevel?: string | null;
   enrollmentDate?: string | null;
+  gender?: 'male' | 'female' | 'other' | null;
   representative?: string | null;
   status: 'active' | 'pending' | 'dropped';
 }
@@ -67,11 +68,7 @@ interface DetailedStudent extends Student {
   }>;
 }
 
-const ENROLLMENT_STATUS_OPTIONS = [
-  { value: 'active', label: 'Activa' },
-  { value: 'inactive', label: 'Inactiva' },
-  { value: 'dropped', label: 'Baja' },
-];
+
 
 const formatRepresentativeName = (user: { firstName?: string; paternalSurname?: string; maternalSurname?: string | null } | RepresentativeOption) => {
   if ('name' in user) {
@@ -273,6 +270,19 @@ export default function Students() {
     }
   };
 
+  const getGenderLabel = (gender?: Student['gender']) => {
+    switch (gender) {
+      case 'male':
+        return 'Masculino';
+      case 'female':
+        return 'Femenino';
+      case 'other':
+        return 'Otro';
+      default:
+        return '—';
+    }
+  };
+
   const handleStartStatusEdit = (student: Student) => {
     setEditingStatusStudentId(student.id);
     setPendingStatusValue(student.status);
@@ -450,6 +460,13 @@ export default function Students() {
         programId: null,
         program: stuData.program || null,
       });
+      const studentDocuments = stuData.documents || [];
+      const activeAilments = (stuData.ailments || []).filter((item) => {
+        const relationStatus = item.status || 'active';
+        const ailmentId = item.ailmentId || item.ailment?.id;
+
+        return relationStatus === 'active' && Boolean(ailmentId);
+      });
 
       const detailed: DetailedStudent = {
         ...student,
@@ -462,14 +479,14 @@ export default function Students() {
           name: item.subject.name,
           code: item.subject.code,
         })),
-        documents: (stuData.documents || []).map((doc) => ({
+        documents: studentDocuments.map((doc) => ({
           id: doc.id,
           document_type: doc.documentType,
           file_name: doc.fileName,
           file_url: doc.fileUrl,
           uploaded_at: doc.uploadedAt,
         })),
-        ailments: (stuData.ailments || []).map((item) => ({
+        ailments: activeAilments.map((item) => ({
           id: item.id,
           name: item.ailment?.name || 'Padecimiento',
           severity: item.ailment?.severity,
@@ -688,7 +705,7 @@ export default function Students() {
                   </div>
                   <div className="student-detail-card bg-gradient-to-br from-slate-50 to-cyan-50 rounded-2xl p-4 border border-cyan-100">
                     <p className="text-xs font-semibold text-gray-500 uppercase">Género</p>
-                    <p className="text-sm font-medium text-gray-800 mt-1">—</p>
+                    <p className="text-sm font-medium text-gray-800 mt-1">{getGenderLabel(selectedStudent.gender)}</p>
                   </div>
                   <div className="student-detail-card bg-gradient-to-br from-slate-50 to-violet-50 rounded-2xl p-4 border border-violet-100 md:col-span-2">
                     <p className="text-xs font-semibold text-gray-500 uppercase">Fecha de Inscripción</p>

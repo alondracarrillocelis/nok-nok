@@ -92,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUp = async (firstName: string, paternalSurname: string, maternalSurname: string, email: string, password: string, phone: string, role: string) => {
     try {
       await auth.register(firstName, paternalSurname, maternalSurname, email, password, phone, role);
+      // El backend debería enviar email de verificación automáticamente
       return { error: null };
     } catch (err) {
       return { error: err as Error };

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Search, Plus, Pencil, Trash2 } from 'lucide-react';
+import { Search, Plus, Pencil, Trash2, X, Eye } from 'lucide-react';
 import {
   programs as programsApi,
   Program as ApiProgram,
@@ -37,6 +37,7 @@ export default function Programs() {
   const [showAddProgramModal, setShowAddProgramModal] = useState(false);
   const [showAssignSubjectModal, setShowAssignSubjectModal] = useState(false);
   const [showAddSubjectModal, setShowAddSubjectModal] = useState(false);
+  const [showViewSubjectsModal, setShowViewSubjectsModal] = useState(false);
   const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
   const [subjectSaving, setSubjectSaving] = useState(false);
   const [programSaving, setProgramSaving] = useState(false);
@@ -145,6 +146,10 @@ export default function Programs() {
   const resetAssignSubjectModal = () => {
     setShowAssignSubjectModal(false);
     setAssignSubjectId('');
+  };
+
+  const resetViewSubjectsModal = () => {
+    setShowViewSubjectsModal(false);
   };
 
   const openEditSubjectModal = (subject: SubjectOption) => {
@@ -410,6 +415,13 @@ export default function Programs() {
               <Plus size={18} />
               Agregar Materia
             </button>
+            <button
+              onClick={() => setShowViewSubjectsModal(true)}
+              className="flex items-center gap-2 bg-purple-600 text-white px-5 py-2.5 rounded-full font-semibold hover:bg-purple-700 transition-colors"
+            >
+              <Eye size={18} />
+              Ver Materias
+            </button>
             <div className="relative">
               <input
                 type="text"
@@ -667,6 +679,117 @@ export default function Programs() {
                 className="px-6 py-2 rounded-full bg-green-600 text-white font-semibold hover:bg-green-700 disabled:opacity-60"
               >
                 {programSaving ? 'Guardando...' : 'Guardar Programa'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showViewSubjectsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-2xl w-full p-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between mb-6">
+              <div>
+                <h2 className="text-2xl font-black text-gray-900">Materias Disponibles</h2>
+                <p className="text-sm text-gray-600 mt-1">Catálogo completo de todas las materias</p>
+              </div>
+              <button
+                onClick={resetViewSubjectsModal}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X size={24} className="text-gray-600" />
+              </button>
+            </div>
+
+            <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+              {subjectCatalog.length === 0 ? (
+                <div className="text-sm text-gray-500 p-4 border border-dashed rounded-xl border-gray-300">
+                  No hay materias en el catálogo.
+                </div>
+              ) : (
+                subjectCatalog.map((subject) => {
+                    const isAssignedToSelectedProgram = selectedProgram?.subjects.some((s) => s.id === subject.id);
+
+                    return (
+                      <div
+                        key={subject.id}
+                        className={`rounded-xl border p-4 transition-colors ${
+                          subject.status === 'inactive'
+                            ? 'border-red-200 bg-red-50/50 hover:bg-red-50'
+                            : 'border-gray-200 bg-white hover:bg-gray-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="flex-1">
+                            <p className="font-semibold text-gray-900">{subject.name}</p>
+                            <p className="text-xs text-gray-500 mt-1">{subject.description || 'Sin descripción'}</p>
+                            <div className="flex items-center gap-2 mt-2">
+                              <span className="text-xs font-bold px-2 py-1 rounded-md bg-blue-100 text-blue-800">
+                                Código: {subject.code}
+                              </span>
+                              <span className="text-xs font-bold px-2 py-1 rounded-md bg-gray-100 text-gray-800">
+                                Créditos: {subject.credits}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {selectedProgram && isAssignedToSelectedProgram && (
+                              <span className="text-xs font-bold px-3 py-1 rounded-full bg-green-100 text-green-800">
+                                Asignada
+                              </span>
+                            )}
+                            <span
+                              className={`text-xs font-bold px-3 py-1 rounded-full ${
+                                subject.status === 'inactive'
+                                  ? 'bg-red-100 text-red-800'
+                                  : 'bg-emerald-100 text-emerald-800'
+                              }`}
+                            >
+                              {subject.status === 'inactive' ? 'Baja' : 'Activa'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleSubjectDrop(subject)}
+                              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                                subject.status === 'inactive'
+                                  ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                                  : 'bg-red-100 text-red-700 hover:bg-red-200'
+                              }`}
+                              title={subject.status === 'inactive' ? 'Activar materia' : 'Desactivar materia'}
+                            >
+                              {subject.status === 'inactive' ? 'Activar' : 'Desactivar'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditSubjectModal(subject)}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-blue-700 hover:border-blue-300 hover:bg-blue-50"
+                              title="Editar materia"
+                            >
+                              <Pencil size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 mt-8 pt-6 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setSubjectCreationContext('catalog');
+                  setShowAddSubjectModal(true);
+                }}
+                className="px-6 py-2 rounded-full bg-blue-600 text-white font-semibold hover:bg-blue-700"
+              >
+                Agregar Materia
+              </button>
+              <button
+                onClick={resetViewSubjectsModal}
+                className="px-6 py-2 rounded-full border border-gray-300 text-gray-700 font-semibold hover:bg-gray-50"
+              >
+                Cerrar
               </button>
             </div>
           </div>

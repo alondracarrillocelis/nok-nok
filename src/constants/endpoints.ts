@@ -99,6 +99,7 @@ export const ENDPOINTS = {
   ENROLLMENTS: {
     LIST: (studentId?: string) =>
       studentId ? `/enrollments/?studentId=${studentId}` : '/enrollments/',
+    LIST_BY_STUDENT_SNAKE: (studentId: string) => `/enrollments/?student_id=${studentId}`,
     CREATE: '/enrollments/',
     GET_BY_ID: (id: string) => `/enrollments/${id}`,
     UPDATE: (id: string) => `/enrollments/${id}`,
@@ -111,6 +112,7 @@ export const ENDPOINTS = {
   DOCUMENTS: {
     LIST: (studentId?: string) =>
       studentId ? `/documents/?studentId=${studentId}` : '/documents/',
+    LIST_BY_STUDENT_SNAKE: (studentId: string) => `/documents/?student_id=${studentId}`,
     UPLOAD: '/documents/',
     DELETE: (id: string) => `/documents/${id}`,
   },

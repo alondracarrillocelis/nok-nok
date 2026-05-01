@@ -15,7 +15,7 @@ interface User {
   email: string;
   phone: string | null;
   role: 'tutor' | 'admin';
-  status: 'activo' | 'inactivo';
+  status: 'active' | 'inactive';
   createdAt: string;
 }
 
@@ -24,14 +24,14 @@ export default function Users() {
   const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'tutor' | 'admin'>('all');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'activo' | 'inactivo'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editForm, setEditForm] = useState({
     role: 'tutor' as 'tutor' | 'admin',
-    status: 'activo' as 'activo' | 'inactivo',
+    status: 'active' as 'active' | 'inactive',
     phone: '',
   });
   const [isSavingEdit, setIsSavingEdit] = useState(false);
@@ -139,9 +139,9 @@ export default function Users() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'activo':
+      case 'active':
         return 'bg-green-100 text-green-800';
-      case 'inactivo':
+      case 'inactive':
         return 'bg-red-100 text-red-800';
       default:
         return 'bg-gray-100 text-gray-800';
@@ -264,24 +264,24 @@ export default function Users() {
             Todos estados ({users.length})
           </button>
           <button
-            onClick={() => setStatusFilter('activo')}
+            onClick={() => setStatusFilter('active')}
             className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-              statusFilter === 'activo'
+              statusFilter === 'active'
                 ? 'bg-green-500 text-white'
                 : 'bg-white text-gray-600 hover:bg-gray-100'
             }`}
           >
-            Activos ({users.filter(u => u.status === 'activo').length})
+            Activos ({users.filter(u => u.status === 'active').length})
           </button>
           <button
-            onClick={() => setStatusFilter('inactivo')}
+            onClick={() => setStatusFilter('inactive')}
             className={`px-6 py-2 rounded-full font-semibold transition-colors ${
-              statusFilter === 'inactivo'
+              statusFilter === 'inactive'
                 ? 'bg-red-500 text-white'
                 : 'bg-white text-gray-600 hover:bg-gray-100'
             }`}
           >
-            Inactivos ({users.filter(u => u.status === 'inactivo').length})
+            Inactivos ({users.filter(u => u.status === 'inactive').length})
           </button>
         </div>
 
@@ -372,7 +372,7 @@ export default function Users() {
                       </td>
                       <td className="px-6 py-4">
                         <span className={`px-3 py-1 rounded-full text-xs font-semibold ${getStatusColor(user.status)}`}>
-                          {user.status === 'activo' ? 'Activo' : 'Inactivo'}
+                          {user.status === 'active' ? 'Activo' : 'Inactivo'}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-gray-700 whitespace-nowrap">
@@ -401,13 +401,13 @@ export default function Users() {
                                 setConfirmationModal({
                                   isOpen: true,
                                   type: 'edit',
-                                  title: user.status === 'activo' ? 'Desactivar usuario' : 'Activar usuario',
-                                  message: `¿Deseas ${user.status === 'activo' ? 'desactivar' : 'activar'} a ${user.firstName} ${user.paternalSurname}?`,
-                                  confirmText: user.status === 'activo' ? 'Desactivar' : 'Activar',
+                                  title: user.status === 'active' ? 'Desactivar usuario' : 'Activar usuario',
+                                  message: `¿Deseas ${user.status === 'active' ? 'desactivar' : 'activar'} a ${user.firstName} ${user.paternalSurname}?`,
+                                  confirmText: user.status === 'active' ? 'Desactivar' : 'Activar',
                                   onConfirm: async () => {
                                     try {
                                       await usersApi.update(user.id, {
-                                        status: user.status === 'activo' ? 'inactivo' : 'activo',
+                                        status: user.status === 'active' ? 'inactive' : 'active',
                                       });
                                       showToast('Estado actualizado', 'success');
                                       await fetchUsers();
@@ -420,12 +420,12 @@ export default function Users() {
                               }}
                               className="flex w-full items-center gap-2 text-left px-4 py-2 hover:bg-gray-50 text-gray-700 font-semibold"
                             >
-                              {user.status === 'activo' ? (
+                              {user.status === 'active' ? (
                                 <UserX size={16} className="text-red-600" />
                               ) : (
                                 <UserCheck size={16} className="text-green-600" />
                               )}
-                              {user.status === 'activo' ? 'Desactivar' : 'Activar'}
+                              {user.status === 'active' ? 'Desactivar' : 'Activar'}
                             </button>
                             </div>
                           )}
@@ -490,11 +490,11 @@ export default function Users() {
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Estado</label>
                 <select
                   value={editForm.status}
-                  onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value as 'activo' | 'inactivo' }))}
+                  onChange={(e) => setEditForm((prev) => ({ ...prev, status: e.target.value as 'active' | 'inactive' }))}
                   className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-green-500"
                 >
-                  <option value="activo">Activo</option>
-                  <option value="inactivo">Inactivo</option>
+                  <option value="active">Activo</option>
+                  <option value="inactive">Inactivo</option>
                 </select>
               </div>
               <div>
