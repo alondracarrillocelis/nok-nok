@@ -1,10 +1,12 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, lazy, Suspense } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import BrandLogo from '../components/BrandLogo';
 import FieldError from '../components/FieldError';
 import doodles from '../assets/Doodles.png';
+
+const AddStudentModal = lazy(() => import('../components/AddStudentModal'));
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -13,6 +15,7 @@ export default function Login() {
   const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showStudentPreview, setShowStudentPreview] = useState(false);
   const navigate = useNavigate();
   const { signIn } = useAuth();
 
@@ -164,11 +167,22 @@ export default function Login() {
         </form>
 
         <div className="mt-6 pt-4 text-center">
+       
           <p className="text-xs font-medium tracking-wide text-cyan-900/60">
             Acceso seguro para administración interna
           </p>
         </div>
       </div>
+
+      {showStudentPreview && (
+        <Suspense fallback={<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"><div className="bg-white rounded-3xl p-8"><div className="animate-spin h-8 w-8 border-4 border-green-500 border-t-transparent rounded-full" /></div></div>}>
+          <AddStudentModal
+            previewMode
+            onClose={() => setShowStudentPreview(false)}
+            onSuccess={() => setShowStudentPreview(false)}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }

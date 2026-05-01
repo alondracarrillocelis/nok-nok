@@ -2,9 +2,17 @@
 
 import { ENDPOINTS } from '../constants/endpoints';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ||'/api/v1';
+const AUTH_SESSION_CLEARED_EVENT = 'auth:session-cleared';
 const SESSION_PERSISTENCE_KEY = 'session_persistence_mode';
 const AUTH_STORAGE_KEYS = ['auth_token', 'refresh_token', 'user_data'] as const;
+
+const buildApiUrl = (endpoint: string) => `${API_BASE_URL}${endpoint}`;
+
+const buildConnectionError = (endpoint: string) =>
+  new Error(
+    `No se pudo conectar al backend en ${buildApiUrl(endpoint)}. Verifica que el servidor esté levantado y que VITE_API_BASE_URL esté configurada correctamente.`
+  );
 
 let refreshInFlight: Promise<void> | null = null;
 
@@ -606,11 +614,19 @@ const shouldTryRefresh = (endpoint: string): boolean => {
   return !noRefreshEndpoints.some((authEndpoint) => endpoint.startsWith(authEndpoint));
 };
 
-const clearSessionStorage = () => {
+export const clearSessionStorage = () => {
   removeSessionValue('auth_token');
   removeSessionValue('refresh_token');
   removeSessionValue('user_data');
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(AUTH_SESSION_CLEARED_EVENT));
+  }
 };
+
+export const AUTH_EVENTS = {
+  SESSION_CLEARED: AUTH_SESSION_CLEARED_EVENT,
+} as const;
 
 const refreshAccessToken = async (): Promise<void> => {
   if (!refreshInFlight) {
@@ -637,6 +653,19 @@ const parseApiError = async (response: Response): Promise<Error> => {
   return new Error(errorPayload?.message || errorPayload?.error || `Error: ${response.status}`);
 };
 
+const parseResponseJson = async <T>(response: Response): Promise<T> => {
+  const text = await response.text();
+  if (!text) {
+    throw new Error('La respuesta no contiene JSON válido');
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error('La respuesta no contiene JSON válido');
+  }
+};
+
 // Helper para requests
 const apiCall = async <T = unknown>(
   endpoint: string,
@@ -644,13 +673,18 @@ const apiCall = async <T = unknown>(
   retried = false
 ): Promise<T> => {
   const headers = getAuthHeader();
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers: {
-      ...headers,
-      ...(options.headers || {}),
-    },
-  });
+    let response: Response;
+  try {
+    response = await fetch(buildApiUrl(endpoint), {
+      ...options,
+      headers: {
+        ...headers,
+        ...(options.headers || {}),
+      },
+    });
+  } catch {
+    throw buildConnectionError(endpoint);
+  }
 
   if (response.status === 401 && !retried && shouldTryRefresh(endpoint)) {
     try {
@@ -684,11 +718,18 @@ const apiCall = async <T = unknown>(
 
 export const auth = {
   login: async (email: string, password: string): Promise<AuthResponse> => {
-    const response = await fetch(`${API_BASE_URL}${ENDPOINTS.AUTH.LOGIN}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
+    const url = buildApiUrl(ENDPOINTS.AUTH.LOGIN);
+    let response: Response;
+
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+    } catch {
+      throw buildConnectionError(ENDPOINTS.AUTH.LOGIN);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -698,15 +739,10 @@ export const auth = {
       } catch {
         errorObj = null;
       }
-      throw new Error((errorObj && errorObj.message) || 'Error en el login');
+      throw new Error((errorObj && (errorObj.message || errorObj.error)) || 'Error en el login');
     }
 
-    const text = await response.text();
-    if (!text) {
-      throw new Error('La respuesta del login no contiene JSON válido');
-    }
-
-    const data: AuthResponse = JSON.parse(text);
+    const data = await parseResponseJson<AuthResponse>(response);
     setSessionValue('auth_token', data.accessToken);
     if (data.refreshToken) {
       setSessionValue('refresh_token', data.refreshToken);
@@ -723,11 +759,18 @@ export const auth = {
     phone: string,
     role: string
   ): Promise<RegisterResponse> => {
-    const response = await fetch(`${API_BASE_URL}${ENDPOINTS.AUTH.REGISTER}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ firstName, paternalSurname, maternalSurname, email, password, phone, role }),
-    });
+    const url = buildApiUrl(ENDPOINTS.AUTH.REGISTER);
+    let response: Response;
+
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ firstName, paternalSurname, maternalSurname, email, password, phone, role }),
+      });
+    } catch {
+      throw buildConnectionError(ENDPOINTS.AUTH.REGISTER);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -737,15 +780,10 @@ export const auth = {
       } catch {
         errorObj = null;
       }
-      throw new Error((errorObj && errorObj.message) || 'Error en el registro');
+      throw new Error((errorObj && (errorObj.message || errorObj.error)) || 'Error en el registro');
     }
 
-    const text = await response.text();
-    if (!text) {
-      throw new Error('La respuesta del registro no contiene JSON válido');
-    }
-
-    return JSON.parse(text) as RegisterResponse;
+    return await parseResponseJson<RegisterResponse>(response);
   },
 
   verifyEmail: async (token: string): Promise<ApiMessageResponse> => {
@@ -787,15 +825,31 @@ export const auth = {
     const refreshToken = getSessionValue('refresh_token');
     if (!refreshToken) throw new Error('No refresh token');
 
-    const response = await fetch(`${API_BASE_URL}${ENDPOINTS.AUTH.REFRESH}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
-    });
+    const url = buildApiUrl(ENDPOINTS.AUTH.REFRESH);
+    let response: Response;
 
-    if (!response.ok) throw new Error('Token refresh failed');
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+    } catch {
+      throw buildConnectionError(ENDPOINTS.AUTH.REFRESH);
+    }
 
-    const data: RefreshTokenResponse = await response.json();
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorObj;
+      try {
+        errorObj = errorText ? JSON.parse(errorText) : null;
+      } catch {
+        errorObj = null;
+      }
+      throw new Error((errorObj && (errorObj.message || errorObj.error)) || 'Token refresh failed');
+    }
+
+    const data = await parseResponseJson<RefreshTokenResponse>(response);
     setSessionValue('auth_token', data.accessToken);
     if (data.refreshToken) {
       setSessionValue('refresh_token', data.refreshToken);

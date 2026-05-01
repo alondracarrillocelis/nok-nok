@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ResponsiveContainer,
   BarChart,
@@ -139,6 +140,7 @@ const loadAllStudents = async () => {
 };
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [allStudents, setAllStudents] = useState<Student[]>([]);
   const [allEnrollments, setAllEnrollments] = useState<Enrollment[]>([]);
   const [programCatalog, setProgramCatalog] = useState<Program[]>([]);
@@ -212,8 +214,16 @@ export default function Dashboard() {
 
       setExpiringEnrollments(nextExpiringEnrollments);
     } catch (error) {
-      console.error('Error fetching dashboard data:', error);
       const message = error instanceof Error ? error.message : 'Error al cargar estadísticas';
+      const normalizedMessage = message.toLowerCase();
+
+      if (normalizedMessage.includes('token inválido') || normalizedMessage.includes('token invalido') || normalizedMessage.includes('expirado')) {
+        showToast('Tu sesión expiró. Inicia sesión nuevamente.', 'error');
+        navigate('/login', { replace: true });
+        return;
+      }
+
+      console.error('Error fetching dashboard data:', error);
       showToast(message, 'error');
     } finally {
       setLoading(false);

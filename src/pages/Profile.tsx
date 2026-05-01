@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { users, API_BASE_URL, sessionSettings } from '../lib/api';
 import { ENDPOINTS } from '../constants/endpoints';
 import Layout from '../components/Layout';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import { showToast } from '../components/Toast';
 import { formatPhoneMask, isValidPhone } from '../lib/validators';
 

@@ -1,5 +1,5 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { auth, sessionSettings } from '../lib/api';
+import { createContext, useEffect, useState, ReactNode } from 'react';
+import { AUTH_EVENTS, auth, clearSessionStorage, sessionSettings } from '../lib/api';
 
 interface User {
   id: string;
@@ -18,7 +18,7 @@ interface AuthContextType {
   setKeepSession: (keep: boolean) => void;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -26,24 +26,50 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [keepSession, setKeepSessionState] = useState<boolean>(sessionSettings.isPersistent());
 
   useEffect(() => {
+    const handleSessionCleared = () => {
+      setUser(null);
+      setLoading(false);
+    };
+
+    window.addEventListener(AUTH_EVENTS.SESSION_CLEARED, handleSessionCleared);
+
     (async () => {
       try {
         const token = sessionSettings.getValue('auth_token');
-        if (token) {
-          // Aquí podrías hacer una llamada para obtener el usuario actual
-          // Por ahora asumimos que el usuario está autenticado
-          const userData = sessionSettings.getValue('user_data');
-          if (userData) {
-            setUser(JSON.parse(userData));
-          }
+        const refreshToken = sessionSettings.getValue('refresh_token');
+        const userData = sessionSettings.getValue('user_data');
+
+        if (token === 'dev-access-token') {
+          clearSessionStorage();
+          return;
+        }
+
+        if (!token && !refreshToken) {
+          setUser(null);
+          return;
+        }
+
+        if (refreshToken) {
+          await auth.refresh();
+        }
+
+        if (userData) {
+          setUser(JSON.parse(userData));
+        } else {
+          setUser(null);
         }
       } catch (error) {
         console.warn('Failed to restore session:', error);
+        clearSessionStorage();
         setUser(null);
       } finally {
         setLoading(false);
       }
     })();
+
+    return () => {
+      window.removeEventListener(AUTH_EVENTS.SESSION_CLEARED, handleSessionCleared);
+    };
   }, []);
 
   const signIn = async (email: string, password: string) => {
@@ -92,12 +118,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
 }

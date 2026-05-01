@@ -1,5 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './contexts/AuthContext';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import ProtectedRoute from './components/ProtectedRoute';
 import { Toast } from './components/Toast';
 import Login from './pages/Login';
@@ -27,90 +26,88 @@ const PageLoader = () => (
 
 function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route
-            path="/forgot-password"
-            element={
+    <>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route
+          path="/forgot-password"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <ForgotPassword />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/reset-password"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <ResetPassword />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/verify-email"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <VerifyEmail />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
               <Suspense fallback={<PageLoader />}>
-                <ForgotPassword />
+                <Dashboard />
               </Suspense>
-            }
-          />
-          <Route
-            path="/reset-password"
-            element={
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/students"
+          element={
+            <ProtectedRoute>
               <Suspense fallback={<PageLoader />}>
-                <ResetPassword />
+                <Students />
               </Suspense>
-            }
-          />
-          <Route
-            path="/verify-email"
-            element={
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/users"
+          element={
+            <ProtectedRoute>
               <Suspense fallback={<PageLoader />}>
-                <VerifyEmail />
+                <Users />
               </Suspense>
-            }
-          />
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <Suspense fallback={<PageLoader />}>
-                  <Dashboard />
-                </Suspense>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/students"
-            element={
-              <ProtectedRoute>
-                <Suspense fallback={<PageLoader />}>
-                  <Students />
-                </Suspense>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/users"
-            element={
-              <ProtectedRoute>
-                <Suspense fallback={<PageLoader />}>
-                  <Users />
-                </Suspense>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/profile"
-            element={
-              <ProtectedRoute>
-                <Suspense fallback={<PageLoader />}>
-                  <Profile />
-                </Suspense>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/programs"
-            element={
-              <ProtectedRoute>
-                <Suspense fallback={<PageLoader />}>
-                  <Programs />
-                </Suspense>
-              </ProtectedRoute>
-            }
-          />
-          <Route path="/subjects" element={<Navigate to="/programs" replace />} />
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
-        <Toast />
-      </AuthProvider>
-    </BrowserRouter>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<PageLoader />}>
+                <Profile />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/programs"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<PageLoader />}>
+                <Programs />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/subjects" element={<Navigate to="/programs" replace />} />
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+      <Toast />
+    </>
   );
 }
 

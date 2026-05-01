@@ -1,7 +1,7 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Home, Users, Bot, Settings, LogOut, Book, Moon, Sun } from 'lucide-react';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../hooks/useAuth';
 import BrandLogo from './BrandLogo';
 import ConfirmationModal from './ConfirmationModal';
 import doodles from '../assets/Doodles.png';

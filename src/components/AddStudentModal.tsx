@@ -41,12 +41,13 @@ interface ApiUser {
 interface AddStudentModalProps {
   onClose: () => void;
   onSuccess: () => void;
+  previewMode?: boolean;
 }
 
 type Step = 'personal' | 'inscription' | 'tutor' | 'ailments';
 type GenderValue = '' | 'male' | 'female' | 'other';
 
-export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalProps) {
+export default function AddStudentModal({ onClose, onSuccess, previewMode = false }: AddStudentModalProps) {
   const [currentStep, setCurrentStep] = useState<Step>('personal');
   const initialData = {
     firstName: '',
@@ -109,6 +110,84 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
   };
 
   useEffect(() => {
+    if (previewMode) {
+      const mockPrograms: ProgramOption[] = [
+        { id: 'program-1', name: 'Iniciacion Musical', description: 'Piano y ritmo' },
+        { id: 'program-2', name: 'Exploracion Creativa', description: 'Arte y movimiento' },
+      ];
+      const mockAilments: Ailment[] = [
+        {
+          id: 'ailment-1',
+          name: 'Alergia estacional',
+          description: 'Sensibilidad al polvo',
+          medication: 'Loratadina',
+          medicalDescription: 'Controlada',
+          severity: 'mild',
+          notes: 'Solo en temporada',
+        },
+      ];
+      const mockUsers: User[] = [
+        {
+          id: 'user-1',
+          name: 'Laura Martinez',
+          email: 'laura@example.com',
+          role: 'tutor',
+        },
+      ];
+
+      setAvailablePrograms(mockPrograms);
+      setAvailableAilments(mockAilments);
+      setAvailableUsers(mockUsers);
+      setFormData((prev) => ({
+        ...prev,
+        firstName: 'Valeria',
+        paternalSurname: 'Santos',
+        maternalSurname: 'Lopez',
+        gender: 'female',
+        birthDate: '2017-09-14',
+        enrollmentNumber: 'MAT-2026-014',
+        enrollmentDate: new Date().toISOString().split('T')[0],
+        currentLevel: 'Intermedio',
+        currentGrade: 'Segundo',
+        program: mockPrograms[0].id,
+        inscriptionProgram: mockPrograms[0].id,
+        representativeId: mockUsers[0].id,
+        representative: mockUsers[0].name,
+        emergencyContactName: 'Rosa Lopez',
+        emergencyContactPhone: '555-123-4567',
+        folio: 'FOL-2026-014',
+        shift: 'Matutino',
+      }));
+      setInitialFormData((prev) => ({
+        ...prev,
+        firstName: 'Valeria',
+        paternalSurname: 'Santos',
+        maternalSurname: 'Lopez',
+        gender: 'female',
+        birthDate: '2017-09-14',
+        enrollmentNumber: 'MAT-2026-014',
+        enrollmentDate: new Date().toISOString().split('T')[0],
+        currentLevel: 'Intermedio',
+        currentGrade: 'Segundo',
+        program: mockPrograms[0].id,
+        inscriptionProgram: mockPrograms[0].id,
+        representativeId: mockUsers[0].id,
+        representative: mockUsers[0].name,
+        emergencyContactName: 'Rosa Lopez',
+        emergencyContactPhone: '555-123-4567',
+        folio: 'FOL-2026-014',
+        shift: 'Matutino',
+      }));
+      setSelectedAilments(['ailment-1']);
+      setAilmentDetails({
+        'ailment-1': {
+          diagnosisDate: '2026-01-12',
+          notes: 'Seguimiento anual',
+        },
+      });
+      return;
+    }
+
     fetchPrograms();
     fetchAilments();
     fetchUsers();
@@ -181,6 +260,11 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
   };
 
   const handleCreateAilment = async () => {
+    if (previewMode) {
+      showToast('Vista previa: este modo no crea padecimientos ni llama a la API', 'info');
+      return;
+    }
+
     if (!newAilmentForm.name.trim()) {
       showToast('El nombre del padecimiento es obligatorio', 'error');
       return;
@@ -329,6 +413,11 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
   };
 
   const performSubmit = async () => {
+    if (previewMode) {
+      setShowSuccessConfirm(true);
+      return;
+    }
+
     setIsLoading(true);
     try {
       const selectedProgram = availablePrograms.find((program) => program.id === formData.program);
@@ -435,7 +524,11 @@ export default function AddStudentModal({ onClose, onSuccess }: AddStudentModalP
           <div className="flex items-start justify-between mb-6">
             <div>
               <h2 className="text-2xl font-bold text-gray-900">Agregar Alumno/a</h2>
-              <p className="text-sm text-gray-500">Por favor llena los campos solicitados</p>
+              <p className="text-sm text-gray-500">
+                {previewMode
+                  ? 'Vista previa del diseño. No se enviarán datos ni se llamará a la API.'
+                  : 'Por favor llena los campos solicitados'}
+              </p>
             </div>
             <button
               onClick={handleClose}
