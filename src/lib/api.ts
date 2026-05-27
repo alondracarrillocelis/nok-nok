@@ -1,6 +1,7 @@
 // API Service - Centralizado para todas las llamadas a la API REST
 
 import { ENDPOINTS } from '../constants/endpoints';
+import { deletePublicFileByUrl } from './supabase';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ||'/api/v1';
 const AUTH_SESSION_CLEARED_EVENT = 'auth:session-cleared';
@@ -28,6 +29,7 @@ export interface AuthResponse {
 }
 
 export interface RegisterResponse {
+  message?: string;
   user: {
     id: string;
     email: string;
@@ -467,8 +469,7 @@ export interface Document {
 export interface CreateDocumentPayload {
   studentId: string;
   documentType: string;
-  fileName: string;
-  fileUrl: string;
+  file: File;
 }
 
 type RawDocument = Partial<Document> & {
@@ -597,6 +598,13 @@ const normalizeDocument = (document: RawDocument): Document => ({
 const normalizeEnrollmentPayload = (data: Partial<Enrollment>) => {
   const payload = { ...data };
 
+  Object.keys(payload).forEach((key) => {
+    const typedKey = key as keyof typeof payload;
+    if (payload[typedKey] === undefined || payload[typedKey] === '') {
+      delete payload[typedKey];
+    }
+  });
+
   if (payload.enrollmentType) {
     payload.enrollmentType = normalizeEnrollmentTypeValue(payload.enrollmentType);
   }
@@ -605,7 +613,7 @@ const normalizeEnrollmentPayload = (data: Partial<Enrollment>) => {
     payload.programId = payload.program || null;
   }
 
-  if (payload.programId && (!payload.program || isUuid(payload.program))) {
+  if (payload.programId) {
     delete payload.program;
   }
 
@@ -1256,14 +1264,74 @@ export const documents = {
   },
 
   upload: async (payload: CreateDocumentPayload): Promise<Document> => {
-    return apiCall(ENDPOINTS.DOCUMENTS.UPLOAD, {
+    const formData = new FormData();
+    formData.append('studentId', payload.studentId);
+    formData.append('documentType', payload.documentType);
+    formData.append('file', payload.file);
+
+    const token = getSessionValue('auth_token');
+    const headers: HeadersInit = {};
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+    // Do NOT set Content-Type - let browser set it as multipart/form-data
+
+    const response = await fetch(buildApiUrl(ENDPOINTS.DOCUMENTS.UPLOAD), {
       method: 'POST',
-      body: JSON.stringify(payload),
+      headers,
+      body: formData,
     });
+
+    if (!response.ok) {
+      throw await parseApiError(response);
+    }
+
+    if (response.status === 204) {
+      return undefined as any;
+    }
+
+    const text = await response.text();
+    if (!text) {
+      return undefined as any;
+    }
+
+    const rawData = JSON.parse(text) as RawDocument;
+    return normalizeDocument(rawData);
   },
 
   delete: async (id: string): Promise<void> => {
-    return apiCall(ENDPOINTS.DOCUMENTS.DELETE(id), { method: 'DELETE' });
+    // Try to fetch the document record first to obtain the storage URL.
+    try {
+      // Attempt to GET the document by id (some backends expose GET /documents/:id)
+      let docRecord: RawDocument | null = null;
+      try {
+        docRecord = await apiCall<RawDocument>(`/documents/${id}`, { method: 'GET' });
+      } catch {
+        // Fallback: try listing and find the id in the list
+        try {
+          const list = await apiCall<DocumentsListResponse>(ENDPOINTS.DOCUMENTS.LIST(), { method: 'GET' });
+          const rows = Array.isArray(list) ? list : list.data || [];
+          const found = rows.find((r: any) => r.id === id) as RawDocument | undefined;
+          docRecord = found ?? null;
+        } catch {
+          docRecord = null;
+        }
+      }
+
+      // If we have a file URL, delete the file from Supabase storage first
+      if (docRecord && (docRecord.fileUrl || docRecord.file_url)) {
+        const fileUrl = (docRecord.fileUrl || docRecord.file_url) as string | undefined;
+        if (fileUrl) {
+          await deletePublicFileByUrl(fileUrl);
+        }
+      }
+
+      // Finally, request the backend to soft-delete the document
+      return apiCall(ENDPOINTS.DOCUMENTS.DELETE(id), { method: 'DELETE' });
+    } catch (err) {
+      // Surface storage or API errors upstream
+      throw err;
+    }
   },
 };
 

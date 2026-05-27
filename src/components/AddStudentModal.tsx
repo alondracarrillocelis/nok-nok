@@ -456,8 +456,7 @@ export default function AddStudentModal({ onClose, onSuccess, previewMode = fals
             await documents.upload({
               studentId: student.id,
               documentType: 'pdf',
-              fileName: file.name,
-              fileUrl: URL.createObjectURL(file),
+              file,
             });
           } catch (uploadErr) {
             console.error('Exception uploading document:', uploadErr);

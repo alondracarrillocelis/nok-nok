@@ -167,10 +167,12 @@ export default function Login() {
         </form>
 
         <div className="mt-6 pt-4 text-center">
-       
-          <p className="text-xs font-medium tracking-wide text-cyan-900/60">
-            Acceso seguro para administración interna
-          </p>
+          <Link
+            to="/register"
+            className="inline-flex items-center justify-center gap-2 text-sm font-semibold text-cyan-800 transition hover:text-cyan-950"
+          >
+            ¿No tienes cuenta? Regístrate
+          </Link>
         </div>
       </div>
 

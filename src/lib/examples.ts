@@ -375,8 +375,7 @@ export async function exampleUploadDocument(file: File, studentId: string) {
     const result = await documents.upload({
       studentId,
       documentType: 'pdf',
-      fileName: file.name,
-      fileUrl: URL.createObjectURL(file),
+      file,
     });
     console.log('Documento subido:', result.id);
   } catch (error) {

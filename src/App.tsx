@@ -7,6 +7,7 @@ import { lazy, Suspense } from 'react';
 // Lazy load pages
 const ForgotPassword = lazy(() => import('./pages/ForgotPassword'));
 const ResetPassword = lazy(() => import('./pages/ResetPassword'));
+const Register = lazy(() => import('./pages/Register'));
 const VerifyEmail = lazy(() => import('./pages/VerifyEmail'));
 const Dashboard = lazy(() => import('./pages/Dashboard.tsx'));
 const Students = lazy(() => import('./pages/Students'));
@@ -42,6 +43,14 @@ function App() {
           element={
             <Suspense fallback={<PageLoader />}>
               <ResetPassword />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/register"
+          element={
+            <Suspense fallback={<PageLoader />}>
+              <Register />
             </Suspense>
           }
         />

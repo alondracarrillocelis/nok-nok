@@ -4,6 +4,7 @@ import { students as studentsApi, programs as programsApi, users as usersApi, en
 import { getEnrollmentTypeLabel, getProgramFromEnrollment, getProgramNameFromEnrollment, sortEnrollmentsByDate } from '../lib/academy';
 import Layout from '../components/Layout';
 import DragDropUpload from '../components/DragDropUpload';
+import DocumentPreviewModal from '../components/DocumentPreviewModal';
 const AddStudentModal = lazy(() => import('../components/AddStudentModal'));
 const EditStudentModal = lazy(() => import('../components/EditStudentModal'));
 import ConfirmationModal from '../components/ConfirmationModal';
@@ -100,6 +101,7 @@ export default function Students() {
   const [selectedStudent, setSelectedStudent] = useState<DetailedStudent | null>(null);
   const [programCatalog, setProgramCatalog] = useState<Program[]>([]);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
   const [currentDetailTab, setCurrentDetailTab] = useState<'info' | 'programas' | 'representante' | 'documentos'>('info');
   const [showAddEnrollmentForm, setShowAddEnrollmentForm] = useState(false);
   const [isSavingEnrollment, setIsSavingEnrollment] = useState(false);
@@ -111,6 +113,7 @@ export default function Students() {
   const [showInlineDocumentUploader, setShowInlineDocumentUploader] = useState(false);
   const [inlineDocumentFiles, setInlineDocumentFiles] = useState<File[]>([]);
   const [isUploadingInlineDocuments, setIsUploadingInlineDocuments] = useState(false);
+  const [previewedDocument, setPreviewedDocument] = useState<{ fileName: string; fileUrl: string } | null>(null);
   const [confirmationModal, setConfirmationModal] = useState<{
     isOpen: boolean;
     type: 'delete' | 'edit' | 'add' | 'delete-multiple';
@@ -157,6 +160,19 @@ export default function Students() {
     applyEnrollmentDateFilter();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [students, enrollmentMonthFilter]);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-dropdown-menu]')) {
+        setOpenMenuId(null);
+        setMenuAnchor(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [openMenuId]);
 
   const loadStudentsWithoutStatusFilter = async (search?: string) => {
     const pageSize = 100;
@@ -521,8 +537,7 @@ export default function Students() {
         await documents.upload({
           studentId: selectedStudent.id,
           documentType: 'pdf',
-          fileName: file.name,
-          fileUrl: URL.createObjectURL(file),
+          file,
         });
       }
 
@@ -946,10 +961,33 @@ export default function Students() {
 
                   {selectedStudent.documents && selectedStudent.documents.length > 0 ? (
                     selectedStudent.documents.map((doc) => (
-                      <div key={doc.id} className="student-detail-card rounded-xl border border-gray-200 p-3 bg-gray-50">
-                        <p className="text-sm font-medium text-gray-800">{doc.file_name}</p>
-                        <p className="text-xs text-gray-500 mt-1">{doc.document_type || 'Archivo'}</p>
-                        <a href={doc.file_url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline mt-2 inline-block">Descargar</a>
+                      <div key={doc.id} className="student-detail-card rounded-xl border border-gray-200 p-4 bg-gray-50 hover:bg-gray-100 transition-colors">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-800 truncate">{doc.file_name}</p>
+                            <p className="text-xs text-gray-500 mt-1">{doc.document_type || 'Archivo'}</p>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <button
+                              onClick={() => setPreviewedDocument({ fileName: doc.file_name, fileUrl: doc.file_url })}
+                              className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-3 py-2 text-xs font-medium text-blue-600 hover:bg-blue-100 transition-colors"
+                              title="Ver documento"
+                            >
+                              <Eye size={14} />
+                              Ver
+                            </button>
+                            <a
+                              href={doc.file_url}
+                              download={doc.file_name}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-600 hover:bg-emerald-100 transition-colors"
+                              title="Descargar documento"
+                            >
+                              ↓ Descargar
+                            </a>
+                          </div>
+                        </div>
                       </div>
                     ))
                   ) : (
@@ -1144,7 +1182,7 @@ export default function Students() {
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl shadow-lg overflow-hidden relative">
+        <div className="bg-white rounded-3xl shadow-lg relative">
           {selectedStudents.size > 0 && (
             <div className="absolute top-4 right-4 bg-red-50 border border-red-200 rounded-lg p-3 flex items-center space-x-3 z-10 shadow-md">
               <div className="text-center">
@@ -1292,43 +1330,20 @@ export default function Students() {
                     <td className="px-6 py-4">
                       <div className="relative">
                         <button
-                          onClick={() => setOpenMenuId(openMenuId === student.id ? null : student.id)}
+                          onClick={(e) => {
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            if (openMenuId === student.id) {
+                              setOpenMenuId(null);
+                              setMenuAnchor(null);
+                            } else {
+                              setOpenMenuId(student.id);
+                              setMenuAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                            }
+                          }}
                           className="p-2 hover:bg-gray-100 rounded-full transition-colors"
                         >
                           <MoreVertical size={18} className="text-gray-600" />
                         </button>
-
-                        {openMenuId === student.id && (
-                          <div className="absolute right-0 mt-0 w-48 bg-white rounded-lg shadow-xl border border-gray-200 z-10">
-                            <button
-                              onClick={() => {
-                                setOpenMenuId(null);
-                                handleEditStudentClick(student.id);
-                              }}
-                              className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center space-x-2 transition-colors text-gray-700 font-semibold border-b border-gray-100"
-                            >
-                              <Edit2 size={16} className="text-blue-600" />
-                              <span>Editar</span>
-                            </button>
-                            <button
-                              onClick={() => {
-                                setOpenMenuId(null);
-                                handleToggleStudent(student, 'programas');
-                              }}
-                              className="w-full text-left px-4 py-2 hover:bg-green-50 flex items-center space-x-2 transition-colors text-gray-700 font-semibold border-b border-gray-100"
-                            >
-                              <BookOpen size={16} className="text-green-600" />
-                              <span>Ver Programas</span>
-                            </button>
-                            <button
-                              onClick={() => handleDeleteStudent(student.id)}
-                              className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center space-x-2 transition-colors text-red-700 font-semibold"
-                            >
-                              <Trash2 size={16} />
-                              <span>Dar de baja</span>
-                            </button>
-                          </div>
-                        )}
                       </div>
                     </td>
                   </tr>
@@ -1410,6 +1425,57 @@ export default function Students() {
               : 'Agregar'
         }
       />
+
+      {previewedDocument && (
+        <DocumentPreviewModal
+          isOpen={!!previewedDocument}
+          fileName={previewedDocument.fileName}
+          fileUrl={previewedDocument.fileUrl}
+          onClose={() => setPreviewedDocument(null)}
+        />
+      )}
+
+      {openMenuId && menuAnchor && (
+        <div
+          data-dropdown-menu
+          style={{ position: 'fixed', top: menuAnchor.top, right: menuAnchor.right, zIndex: 1000 }}
+          className="w-48 bg-white rounded-lg shadow-xl border border-gray-200"
+        >
+          {filteredStudents.find(s => s.id === openMenuId) && (
+            <>
+              <button
+                onClick={() => {
+                  setOpenMenuId(null);
+                  setMenuAnchor(null);
+                  handleEditStudentClick(openMenuId);
+                }}
+                className="w-full text-left px-4 py-2 hover:bg-blue-50 flex items-center space-x-2 transition-colors text-gray-700 font-semibold border-b border-gray-100"
+              >
+                <Edit2 size={16} className="text-blue-600" />
+                <span>Editar</span>
+              </button>
+              <button
+                onClick={() => {
+                  setOpenMenuId(null);
+                  setMenuAnchor(null);
+                  handleToggleStudent(filteredStudents.find(s => s.id === openMenuId)!, 'programas');
+                }}
+                className="w-full text-left px-4 py-2 hover:bg-green-50 flex items-center space-x-2 transition-colors text-gray-700 font-semibold border-b border-gray-100"
+              >
+                <BookOpen size={16} className="text-green-600" />
+                <span>Ver Programas</span>
+              </button>
+              <button
+                onClick={() => handleDeleteStudent(openMenuId)}
+                className="w-full text-left px-4 py-2 hover:bg-red-50 flex items-center space-x-2 transition-colors text-red-700 font-semibold"
+              >
+                <Trash2 size={16} />
+                <span>Dar de baja</span>
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </Layout>
   );
 }

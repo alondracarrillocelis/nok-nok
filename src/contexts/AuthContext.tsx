@@ -13,7 +13,7 @@ interface AuthContextType {
   loading: boolean;
   keepSession: boolean;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (firstName: string, paternalSurname: string, maternalSurname: string, email: string, password: string, phone: string, role: string) => Promise<{ error: Error | null }>;
+  signUp: (firstName: string, paternalSurname: string, maternalSurname: string, email: string, password: string, phone: string, role: string) => Promise<{ error: Error | null; message?: string }>;
   signOut: () => Promise<void>;
   setKeepSession: (keep: boolean) => void;
 }
@@ -91,9 +91,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = async (firstName: string, paternalSurname: string, maternalSurname: string, email: string, password: string, phone: string, role: string) => {
     try {
-      await auth.register(firstName, paternalSurname, maternalSurname, email, password, phone, role);
-      // El backend debería enviar email de verificación automáticamente
-      return { error: null };
+      const response = await auth.register(firstName, paternalSurname, maternalSurname, email, password, phone, role);
+      return { error: null, message: response.message };
     } catch (err) {
       return { error: err as Error };
     }

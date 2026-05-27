@@ -494,8 +494,7 @@ export default function EditStudentModal({ studentId, onClose, onSuccess }: Edit
           await documents.upload({
             studentId,
             documentType: 'pdf',
-            fileName: file.name,
-            fileUrl: URL.createObjectURL(file),
+            file,
           });
         }
       }

@@ -28,6 +28,7 @@ export default function Users() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editForm, setEditForm] = useState({
     role: 'tutor' as 'tutor' | 'admin',
@@ -60,6 +61,19 @@ export default function Users() {
     filterUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [users, searchTerm, roleFilter, statusFilter]);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-dropdown-menu]')) {
+        setOpenMenuId(null);
+        setMenuAnchor(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [openMenuId]);
 
   const fetchUsers = async () => {
     try {
@@ -285,7 +299,7 @@ export default function Users() {
           </button>
         </div>
 
-        <div className="bg-white rounded-3xl shadow-lg overflow-hidden">
+        <div className="bg-white rounded-3xl shadow-lg">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
@@ -381,54 +395,20 @@ export default function Users() {
                       <td className="px-6 py-4">
                         <div className="relative inline-block">
                           <button
-                            onClick={() => setOpenMenuId(openMenuId === user.id ? null : user.id)}
+                            onClick={(e) => {
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              if (openMenuId === user.id) {
+                                setOpenMenuId(null);
+                                setMenuAnchor(null);
+                              } else {
+                                setOpenMenuId(user.id);
+                                setMenuAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                              }
+                            }}
                             className="p-2 hover:bg-gray-100 rounded-full transition-colors"
                           >
                             <MoreVertical size={18} className="text-gray-600" />
                           </button>
-                          {openMenuId === user.id && (
-                            <div className="absolute right-0 top-full mt-2 w-44 bg-white rounded-lg shadow-xl border border-gray-200 z-10">
-                            <button
-                              onClick={() => openEditModal(user)}
-                              className="flex w-full items-center gap-2 text-left px-4 py-2 hover:bg-blue-50 text-gray-700 font-semibold border-b border-gray-100"
-                            >
-                              <Pencil size={16} className="text-blue-600" />
-                              Editar usuario
-                            </button>
-                            <button
-                              onClick={() => {
-                                setOpenMenuId(null);
-                                setConfirmationModal({
-                                  isOpen: true,
-                                  type: 'edit',
-                                  title: user.status === 'active' ? 'Desactivar usuario' : 'Activar usuario',
-                                  message: `¿Deseas ${user.status === 'active' ? 'desactivar' : 'activar'} a ${user.firstName} ${user.paternalSurname}?`,
-                                  confirmText: user.status === 'active' ? 'Desactivar' : 'Activar',
-                                  onConfirm: async () => {
-                                    try {
-                                      await usersApi.update(user.id, {
-                                        status: user.status === 'active' ? 'inactive' : 'active',
-                                      });
-                                      showToast('Estado actualizado', 'success');
-                                      await fetchUsers();
-                                    } catch (error) {
-                                      const message = error instanceof Error ? error.message : 'Error al cambiar estado';
-                                      showToast(message, 'error');
-                                    }
-                                  },
-                                });
-                              }}
-                              className="flex w-full items-center gap-2 text-left px-4 py-2 hover:bg-gray-50 text-gray-700 font-semibold"
-                            >
-                              {user.status === 'active' ? (
-                                <UserX size={16} className="text-red-600" />
-                              ) : (
-                                <UserCheck size={16} className="text-green-600" />
-                              )}
-                              {user.status === 'active' ? 'Desactivar' : 'Activar'}
-                            </button>
-                            </div>
-                          )}
                         </div>
                       </td>
                     </tr>
@@ -546,6 +526,71 @@ export default function Users() {
           }
         }}
       />
+
+      {openMenuId && menuAnchor && (
+        <div
+          data-dropdown-menu
+          style={{ position: 'fixed', top: menuAnchor.top, right: menuAnchor.right, zIndex: 1000 }}
+          className="w-44 bg-white rounded-lg shadow-xl border border-gray-200"
+        >
+          {filteredUsers.find(u => u.id === openMenuId) && (
+            <>
+              <button
+                onClick={() => {
+                  setOpenMenuId(null);
+                  setMenuAnchor(null);
+                  openEditModal(filteredUsers.find(u => u.id === openMenuId)!);
+                }}
+                className="flex w-full items-center gap-2 text-left px-4 py-2 hover:bg-blue-50 text-gray-700 font-semibold border-b border-gray-100"
+              >
+                <Pencil size={16} className="text-blue-600" />
+                Editar usuario
+              </button>
+              <button
+                onClick={() => {
+                  setOpenMenuId(null);
+                  setMenuAnchor(null);
+                  const user = filteredUsers.find(u => u.id === openMenuId);
+                  if (!user) return;
+                  setConfirmationModal({
+                    isOpen: true,
+                    type: 'edit',
+                    title: user.status === 'active' ? 'Desactivar usuario' : 'Activar usuario',
+                    message: `¿Deseas ${user.status === 'active' ? 'desactivar' : 'activar'} a ${user.firstName} ${user.paternalSurname}?`,
+                    confirmText: user.status === 'active' ? 'Desactivar' : 'Activar',
+                    onConfirm: async () => {
+                      try {
+                        await usersApi.update(user.id, {
+                          status: user.status === 'active' ? 'inactive' : 'active',
+                        });
+                        showToast('Estado actualizado', 'success');
+                        await fetchUsers();
+                      } catch (error) {
+                        const message = error instanceof Error ? error.message : 'Error al cambiar estado';
+                        showToast(message, 'error');
+                      }
+                    },
+                  });
+                }}
+                className="flex w-full items-center gap-2 text-left px-4 py-2 hover:bg-gray-50 text-gray-700 font-semibold"
+              >
+                {(() => {
+                  const user = filteredUsers.find(u => u.id === openMenuId);
+                  return user?.status === 'active' ? (
+                    <UserX size={16} className="text-red-600" />
+                  ) : (
+                    <UserCheck size={16} className="text-green-600" />
+                  );
+                })()}
+                {(() => {
+                  const user = filteredUsers.find(u => u.id === openMenuId);
+                  return user?.status === 'active' ? 'Desactivar' : 'Activar';
+                })()}
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </Layout>
   );
 }
